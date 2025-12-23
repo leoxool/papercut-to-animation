@@ -262,6 +262,61 @@ function App() {
         });
     }, []);
 
+    // ★★★ 新增：按钮点击处理函数 ★★★
+    const handleImageMaterialClick = useCallback(() => {
+        console.log('=== handleImageMaterialClick called ===');
+        console.log('selectedFile:', selectedFile);
+        console.log('selectedId:', selectedId);
+
+        if (!selectedFile) {
+            console.error('❌ No selected file');
+            return;
+        }
+
+        if (selectedFile.materialType === 'image') {
+            console.log('ℹ️ Already in image mode');
+            return;
+        }
+
+        console.log('🔄 Switching to image material...');
+        switchToImageMaterial(selectedFile)
+            .then(updated => {
+                console.log('✅ Updated:', updated);
+                setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+            })
+            .catch(error => {
+                console.error('❌ Error:', error);
+            });
+    }, [selectedFile, selectedId]);
+
+    const handleSolidColorClick = useCallback(() => {
+        console.log('=== handleSolidColorClick called ===');
+        console.log('selectedFile:', selectedFile);
+        console.log('selectedId:', selectedId);
+
+        if (!selectedFile) {
+            console.error('❌ No selected file');
+            return;
+        }
+
+        if (selectedFile.materialType === 'solid-color') {
+            console.log('ℹ️ Already in solid-color mode');
+            return;
+        }
+
+        const color = selectedFile.color || editingColor || generateRandomColor();
+        console.log('🔄 Switching to solid color:', color);
+        generateSolidColorMaterial(selectedFile, color)
+            .then(updated => {
+                console.log('✅ Updated:', updated);
+                setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                setEditingColor(color);
+            })
+            .catch(error => {
+                console.error('❌ Error:', error);
+            });
+    }, [selectedFile, selectedId, editingColor]);
+
     // ★★★ 新增：切换到图像材质（保持数据） ★★★
     const switchToImageMaterial = useCallback(async (fileObj) => {
         return new Promise((resolve) => {
@@ -515,34 +570,20 @@ function App() {
                                 <div className="grid grid-cols-2 gap-2">
                                     <button
                                         type="button"
-                                        onClick={(e) => {
+                                        onMouseDown={(e) => {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            console.log('=== Image button clicked ===');
-                                            console.log('selectedFile:', selectedFile);
-                                            console.log('selectedId:', selectedId);
-
-                                            if (!selectedFile) {
-                                                console.error('❌ No selected file');
-                                                return;
-                                            }
-
-                                            if (selectedFile.materialType === 'image') {
-                                                console.log('ℹ️ Already in image mode');
-                                                return;
-                                            }
-
-                                            console.log('🔄 Switching to image material...');
-                                            switchToImageMaterial(selectedFile)
-                                                .then(updated => {
-                                                    console.log('✅ Updated:', updated);
-                                                    setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
-                                                })
-                                                .catch(error => {
-                                                    console.error('❌ Error:', error);
-                                                });
+                                            console.log('=== Image button mouse down ===');
+                                            handleImageMaterialClick();
                                         }}
-                                        className={`px-4 py-3 rounded-xl text-sm font-medium transition border ${
+                                        onTouchStart={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            console.log('=== Image button touch start ===');
+                                            handleImageMaterialClick();
+                                        }}
+                                        style={{ pointerEvents: 'auto', zIndex: 50 }}
+                                        className={`px-4 py-3 rounded-xl text-sm font-medium transition border relative ${
                                             selectedFile?.materialType === 'image'
                                                 ? 'bg-blue-600 border-blue-500 text-white shadow-lg'
                                                 : 'bg-transparent border-slate-600 text-slate-300 hover:border-blue-500'
@@ -552,36 +593,20 @@ function App() {
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={(e) => {
+                                        onMouseDown={(e) => {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            console.log('=== Color button clicked ===');
-                                            console.log('selectedFile:', selectedFile);
-                                            console.log('selectedId:', selectedId);
-
-                                            if (!selectedFile) {
-                                                console.error('❌ No selected file');
-                                                return;
-                                            }
-
-                                            if (selectedFile.materialType === 'solid-color') {
-                                                console.log('ℹ️ Already in solid-color mode');
-                                                return;
-                                            }
-
-                                            const color = selectedFile.color || editingColor || generateRandomColor();
-                                            console.log('🔄 Switching to solid color:', color);
-                                            generateSolidColorMaterial(selectedFile, color)
-                                                .then(updated => {
-                                                    console.log('✅ Updated:', updated);
-                                                    setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
-                                                    setEditingColor(color);
-                                                })
-                                                .catch(error => {
-                                                    console.error('❌ Error:', error);
-                                                });
+                                            console.log('=== Color button mouse down ===');
+                                            handleSolidColorClick();
                                         }}
-                                        className={`px-4 py-3 rounded-xl text-sm font-medium transition border ${
+                                        onTouchStart={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            console.log('=== Color button touch start ===');
+                                            handleSolidColorClick();
+                                        }}
+                                        style={{ pointerEvents: 'auto', zIndex: 50 }}
+                                        className={`px-4 py-3 rounded-xl text-sm font-medium transition border relative ${
                                             selectedFile?.materialType === 'solid-color'
                                                 ? 'bg-purple-600 border-purple-500 text-white shadow-lg'
                                                 : 'bg-transparent border-slate-600 text-slate-300 hover:border-purple-500'
@@ -614,13 +639,23 @@ function App() {
                                                 <input
                                                     type="color"
                                                     value={selectedFile.color || editingColor}
-                                                    onChange={async (e) => {
+                                                    onChange={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
                                                         const newColor = e.target.value;
-                                                        const updated = await generateSolidColorMaterial(selectedFile, newColor);
-                                                        setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
-                                                        setEditingColor(newColor);
+                                                        console.log('🎨 Color picker changed:', newColor);
+                                                        generateSolidColorMaterial(selectedFile, newColor)
+                                                            .then(updated => {
+                                                                console.log('✅ Updated with new color:', updated);
+                                                                setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                                                setEditingColor(newColor);
+                                                            })
+                                                            .catch(error => {
+                                                                console.error('❌ Error:', error);
+                                                            });
                                                     }}
-                                                    className="w-full h-16 rounded-lg border-2 border-slate-600 cursor-pointer"
+                                                    style={{ pointerEvents: 'auto', zIndex: 50 }}
+                                                    className="w-full h-16 rounded-lg border-2 border-slate-600 cursor-pointer relative"
                                                 />
                                                 <div className="text-xs text-slate-400">
                                                     当前颜色: <span className="font-mono text-slate-300">{selectedFile.color || editingColor}</span>
@@ -628,13 +663,25 @@ function App() {
                                             </div>
                                         ) : (
                                             <button
-                                                onClick={async () => {
+                                                type="button"
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    console.log('🎲 Random color button clicked');
                                                     const newColor = generateRandomColor();
-                                                    const updated = await generateSolidColorMaterial(selectedFile, newColor);
-                                                    setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
-                                                    setEditingColor(newColor);
+                                                    console.log('Generated color:', newColor);
+                                                    generateSolidColorMaterial(selectedFile, newColor)
+                                                        .then(updated => {
+                                                            console.log('✅ Updated:', updated);
+                                                            setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                                            setEditingColor(newColor);
+                                                        })
+                                                        .catch(error => {
+                                                            console.error('❌ Error:', error);
+                                                        });
                                                 }}
-                                                className="w-full px-4 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition"
+                                                style={{ pointerEvents: 'auto', zIndex: 50 }}
+                                                className="w-full px-4 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition relative"
                                             >
                                                 🎲 生成随机颜色
                                             </button>

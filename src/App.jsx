@@ -376,13 +376,13 @@ function App() {
                                             <img src={file.processedUrl} className="w-full h-full object-contain drop-shadow-md" />
                                         )}
                                     </div>
-                                    <button 
-                                        onClick={(e) => { 
-                                            e.stopPropagation(); 
-                                            setFiles(files.filter(f => f.id !== file.id)); 
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setFiles(files.filter(f => f.id !== file.id));
                                             if (selectedId === file.id) setSelectedId(null);
-                                        }} 
-                                        className="absolute top-1 right-1 w-5 h-5 bg-red-500/80 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                                        }}
+                                        className="absolute top-1 right-1 w-5 h-5 bg-red-500/80 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity z-40"
                                     >
                                         ×
                                     </button>

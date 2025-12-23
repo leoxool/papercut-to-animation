@@ -514,12 +514,24 @@ function App() {
                                 </span>
                                 <div className="grid grid-cols-2 gap-2">
                                     <button
-                                        onClick={async () => {
-                                            const updated = await switchToImageMaterial(selectedFile);
-                                            setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                        onClick={async (e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            console.log('Image material button clicked', selectedFile);
+                                            try {
+                                                if (!selectedFile) {
+                                                    console.error('No selected file');
+                                                    return;
+                                                }
+                                                const updated = await switchToImageMaterial(selectedFile);
+                                                console.log('Updated file:', updated);
+                                                setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                            } catch (error) {
+                                                console.error('Error switching to image material:', error);
+                                            }
                                         }}
                                         className={`px-4 py-3 rounded-xl text-sm font-medium transition border ${
-                                            selectedFile.materialType === 'image'
+                                            selectedFile?.materialType === 'image'
                                                 ? 'bg-blue-600 border-blue-500 text-white shadow-lg'
                                                 : 'bg-transparent border-slate-600 text-slate-300 hover:border-blue-500'
                                         }`}
@@ -527,14 +539,27 @@ function App() {
                                         📷 图像
                                     </button>
                                     <button
-                                        onClick={async () => {
-                                            const color = selectedFile.color || editingColor || generateRandomColor();
-                                            const updated = await generateSolidColorMaterial(selectedFile, color);
-                                            setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
-                                            setEditingColor(color);
+                                        onClick={async (e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            console.log('Solid color button clicked', selectedFile);
+                                            try {
+                                                if (!selectedFile) {
+                                                    console.error('No selected file');
+                                                    return;
+                                                }
+                                                const color = selectedFile.color || editingColor || generateRandomColor();
+                                                console.log('Using color:', color);
+                                                const updated = await generateSolidColorMaterial(selectedFile, color);
+                                                console.log('Updated file:', updated);
+                                                setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                                setEditingColor(color);
+                                            } catch (error) {
+                                                console.error('Error switching to solid color:', error);
+                                            }
                                         }}
                                         className={`px-4 py-3 rounded-xl text-sm font-medium transition border ${
-                                            selectedFile.materialType === 'solid-color'
+                                            selectedFile?.materialType === 'solid-color'
                                                 ? 'bg-purple-600 border-purple-500 text-white shadow-lg'
                                                 : 'bg-transparent border-slate-600 text-slate-300 hover:border-purple-500'
                                         }`}
@@ -545,7 +570,7 @@ function App() {
                             </div>
 
                             {/* 纯色材质控制面板 */}
-                            {selectedFile.materialType === 'solid-color' && (
+                            {selectedFile?.materialType === 'solid-color' && (
                                 <div className="flex-1 p-4 overflow-y-auto">
                                     <div className="space-y-3 p-3 bg-slate-900/50 rounded-xl border border-slate-700">
                                         <div className="flex items-center justify-between">

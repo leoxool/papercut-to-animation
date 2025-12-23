@@ -24,10 +24,19 @@ function App() {
     // ★★★ 新增：下载命名面板状态 ★★★
     const [showDownloadDialog, setShowDownloadDialog] = useState(false);
     const [zipFileName, setZipFileName] = useState('papercut_assets');
+    const [zipNameError, setZipNameError] = useState('');
 
     // ★★★ 默认使用love.mp3作为MV模式音乐 ★★★
     // 使用 import 引入的 URL，支持部署到任意路径
     const audioUrl = loveMusic;
+
+    // ★★★ 监听下载对话框状态，重置表单 ★★★
+    useEffect(() => {
+        if (showDownloadDialog) {
+            setZipFileName('papercut_assets');
+            setZipNameError('');
+        }
+    }, [showDownloadDialog]);
     
     const [loading, setLoading] = useState(true);
     const [progress, setProgress] = useState(0);
@@ -659,23 +668,40 @@ function App() {
                         <input
                             type="text"
                             value={zipFileName}
-                            onChange={(e) => setZipFileName(e.target.value)}
+                            onChange={(e) => {
+                                setZipFileName(e.target.value);
+                                if (e.target.value.trim()) {
+                                    setZipNameError('');
+                                }
+                            }}
                             placeholder="输入文件名"
-                            className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                            className={`w-full px-4 py-3 bg-slate-700 border rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 ${zipNameError ? 'border-red-500' : 'border-slate-600'}`}
                             autoFocus
                         />
+                        {zipNameError && (
+                            <p className="text-red-400 text-sm mt-2">{zipNameError}</p>
+                        )}
                         <div className="flex gap-3 mt-6">
                             <button
                                 onClick={() => {
-                                    downloadZip(zipFileName);
+                                    const trimmedName = zipFileName.trim();
+                                    if (!trimmedName) {
+                                        setZipNameError('请输入至少一个字符');
+                                        return;
+                                    }
+                                    downloadZip(trimmedName);
                                     setShowDownloadDialog(false);
+                                    setZipNameError('');
                                 }}
-                                className="flex-1 py-3 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg font-medium transition"
+                                className="flex-1 py-3 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-lg font-medium transition"
                             >
                                 确认下载
                             </button>
                             <button
-                                onClick={() => setShowDownloadDialog(false)}
+                                onClick={() => {
+                                    setShowDownloadDialog(false);
+                                    setZipNameError('');
+                                }}
                                 className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition"
                             >
                                 取消

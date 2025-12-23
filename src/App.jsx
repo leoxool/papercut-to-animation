@@ -312,7 +312,7 @@ function App() {
             .catch(error => {
                 console.error('❌ Error:', error);
             });
-    }, [selectedFile, selectedId, switchToImageMaterial]);
+    }, [selectedFile, selectedId]);
 
     const handleSolidColorClick = useCallback(() => {
         console.log('=== handleSolidColorClick called ===');
@@ -340,7 +340,7 @@ function App() {
             .catch(error => {
                 console.error('❌ Error:', error);
             });
-    }, [selectedFile, selectedId, editingColor, generateSolidColorMaterial]);
+    }, [selectedFile, selectedId, editingColor]);
 
     const downloadZip = async () => {
         if (files.length === 0) return;

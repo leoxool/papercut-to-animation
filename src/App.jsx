@@ -19,15 +19,15 @@ function App() {
     const [editingColor, setEditingColor] = useState('#ff6b9d');
     const [useRandomColor, setUseRandomColor] = useState(false);
 
-    const [audioUrl, setAudioUrl] = useState(null);
+    // ★★★ 默认使用love.mp3作为MV模式音乐 ★★★
+    const audioUrl = '/love.mp3';
     
     const [loading, setLoading] = useState(true);
     const [progress, setProgress] = useState(0);
 
     const videoRef = useRef(null);
     const streamRef = useRef(null);
-    const fileInputRef = useRef(null); 
-    const audioInputRef = useRef(null);
+    const fileInputRef = useRef(null);
     const debounceTimerRef = useRef(null); 
 
     useEffect(() => {
@@ -217,14 +217,6 @@ function App() {
         e.target.value = '';
     };
 
-    const handleAudioUpload = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            const url = URL.createObjectURL(file);
-            setAudioUrl(url);
-        }
-        e.target.value = '';
-    };
 
     // ★★★ 新增：生成纯色材质 ★★★
     const generateSolidColorMaterial = useCallback(async (fileObj, color) => {
@@ -339,10 +331,9 @@ function App() {
                      <button onClick={() => fileInputRef.current.click()} className="px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20" disabled={isProcessing}>
                         <span>导入图片</span>
                     </button>
-                    <button onClick={() => audioInputRef.current.click()} className={`px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 border ${audioUrl ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-900/20' : 'bg-transparent border-slate-600 text-slate-400 hover:border-purple-500 hover:text-purple-400'}`} title="导入MP3">
-                        <span>{audioUrl ? " 已加载音乐" : " 上传音乐"}</span>
+                    <button onClick={downloadZip} className={`px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 border ${files.length > 0 ? 'bg-cyan-600 border-cyan-500 text-white shadow-lg shadow-cyan-900/20' : 'bg-transparent border-slate-600 text-slate-400 hover:border-cyan-500 hover:text-cyan-400'}`} title="下载所有素材">
+                        <span>⬇ 下载素材</span>
                     </button>
-                    {/*<button onClick={clearAll} className="col-span-2 px-3 py-2 text-xs text-slate-500 hover:text-red-400 transition text-center" title="清空">清空所有素材</button>*/}
                 </div>
 
                 <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 hide-scrollbar bg-slate-800/50" onClick={(e) => {
@@ -419,8 +410,8 @@ function App() {
                     </div>
                     <div className="flex md:hidden gap-2 mt-3 pt-3 border-t border-slate-800">
                         <button onClick={() => fileInputRef.current.click()} className="flex-1 py-2 bg-slate-800 rounded-lg text-xs text-blue-200 border border-slate-700">导入图片</button>
-                         <button onClick={() => audioInputRef.current.click()} className={`flex-1 py-2 rounded-lg text-xs border ${audioUrl ? 'bg-purple-900/30 border-purple-800 text-purple-200' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
-                            {audioUrl ? "音乐OK" : "配乐"}
+                        <button onClick={downloadZip} className={`flex-1 py-2 rounded-lg text-xs border ${files.length > 0 ? 'bg-cyan-900/30 border-cyan-800 text-cyan-200' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+                            下载
                         </button>
                     </div>
                 </div>
@@ -442,8 +433,8 @@ function App() {
                             />
                         </div>
 
-                        {/* ★★★ 悬浮编辑面板（右上角） ★★★ */}
-                        <div className="absolute top-4 right-4 w-72 bg-slate-800/95 backdrop-blur-md border border-slate-700 rounded-2xl shadow-2xl flex flex-col max-h-[80vh]">
+                        {/* ★★★ 悬浮编辑面板（右上角，更小尺寸） ★★★ */}
+                        <div className="absolute top-4 right-4 w-60 bg-slate-800/95 backdrop-blur-md border border-slate-700 rounded-2xl shadow-2xl flex flex-col max-h-[70vh] z-50">
                             {/* 标题栏 */}
                             <div className="p-3 border-b border-slate-700 flex items-center justify-between">
                                 <div>
@@ -661,7 +652,6 @@ function App() {
             </div>
             
             <input type="file" multiple accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-            <input type="file" accept="audio/*" ref={audioInputRef} onChange={handleAudioUpload} className="hidden" />
         </div>
     );
 }

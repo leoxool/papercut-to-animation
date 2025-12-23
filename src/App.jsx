@@ -3,6 +3,8 @@ import JSZip from 'jszip';
 import ChaosGallery from './components/ChaosGallery';
 import LoadingScreen from './components/LoadingScreen';
 import { removeBackground, getSquareCanvas512 } from './utils/imageProcessing';
+// 使用 Vite 的 ?url 查询符引入静态资源，获得正确的 URL
+import loveMusic from '../public/love.mp3?url';
 
 function App() {
     const [files, setFiles] = useState([]);
@@ -24,7 +26,8 @@ function App() {
     const [zipFileName, setZipFileName] = useState('papercut_assets');
 
     // ★★★ 默认使用love.mp3作为MV模式音乐 ★★★
-    const audioUrl = '/love.mp3';
+    // 使用 import 引入的 URL，支持部署到任意路径
+    const audioUrl = loveMusic;
     
     const [loading, setLoading] = useState(true);
     const [progress, setProgress] = useState(0);

@@ -110,6 +110,10 @@ export const SCREENPLAY = [
     { id: 42, startTime: 127.17, camera: { type: 'FIXED', pos: [0, 150, 0], lookAt: [0, 0, 0]}},
    
     {id: 43, startTime: 130.00,camera: { type: 'FIXED', pos: [0,800,0], lookAt: [0, 0, 0]}},
-    //{id: 44, startTime: 330.00,camera: { type: 'FIXED', pos: [0,920,0], lookAt: [0, 0, 0]}}
+  {
+      id: 45,
+      startTime: 170.00,  // 约2分50秒
+      camera: { type: 'FIXED', pos: [0, 800, 0], lookAt: [0, 0, 0] }
+  },
 
 ];

@@ -334,29 +334,6 @@ function App() {
                     </div>
                     <span className="text-xs bg-cyan-900/50 text-cyan-300 px-3 py-1 rounded-full border border-cyan-800 font-mono">已采集{files.length}个作品</span>
                 </div>
-                
-                <div className="px-6 py-6 bg-slate-800 border-b border-slate-700">
-                    <div className="flex justify-between items-center mb-3">
-                        <span className={`text-xs font-bold tracking-wide ${selectedId ? 'text-green-400' : 'text-slate-400'}`}>
-                            {selectedId ? "当前容差调节 (Tolerance)" : "全局默认容差"}
-                        </span>
-                        <span className="text-xs text-cyan-400 font-mono bg-cyan-900/30 px-2 rounded">{Number(currentSliderValue).toFixed(1)}</span>
-                    </div>
-                    <div className="relative h-6 flex items-center select-none w-full">
-                        <div className="absolute w-full h-1.5 bg-slate-600 rounded-lg top-1/2 -translate-y-1/2 left-0"></div>
-                        <div
-                            className="absolute h-1.5 bg-cyan-500 rounded-l-lg top-1/2 -translate-y-1/2 left-0 pointer-events-none"
-                            style={{ width: `${(currentSliderValue / 80) * 100}%` }}
-                        ></div>
-                        <input
-                            type="range"
-                            min="1" max="80" step="0.5"
-                            value={currentSliderValue}
-                            onChange={handleSliderChange}
-                            className="absolute w-full h-full opacity-100 z-20 cursor-pointer inset-0 m-0 p-0"
-                        />
-                    </div>
-                </div>
 
                 <div className="hidden md:grid grid-cols-2 p-4 gap-3 bg-slate-800">
                      <button onClick={() => fileInputRef.current.click()} className="px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20" disabled={isProcessing}>
@@ -452,11 +429,11 @@ function App() {
             <div className="order-1 md:order-2 flex-1 relative bg-black flex items-center justify-center overflow-hidden" onClick={() => setSelectedId(null)}>
                 {selectedFile ? (
                     <div
-                        className="relative w-full h-full flex"
+                        className="relative w-full h-full flex items-center justify-center"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        {/* ★★★ 左侧：预览区域（移除阴影效果） ★★★ */}
-                        <div className="flex-1 flex items-center justify-center bg-gray-100">
+                        {/* ★★★ 预览区域（移除阴影效果） ★★★ */}
+                        <div className="flex-1 flex items-center justify-center bg-gray-100 h-full">
                             <div className="checkerboard opacity-20 w-full h-full absolute inset-0"></div>
                             <img
                                 src={selectedFile.processedUrl}
@@ -465,36 +442,35 @@ function App() {
                             />
                         </div>
 
-                        {/* ★★★ 右侧：控制面板 ★★★ */}
-                        <div className="w-80 bg-slate-800 border-l border-slate-700 flex flex-col">
+                        {/* ★★★ 悬浮编辑面板（右上角） ★★★ */}
+                        <div className="absolute top-4 right-4 w-72 bg-slate-800/95 backdrop-blur-md border border-slate-700 rounded-2xl shadow-2xl flex flex-col max-h-[80vh]">
                             {/* 标题栏 */}
-                            <div className="p-4 border-b border-slate-700 flex items-center justify-between">
+                            <div className="p-3 border-b border-slate-700 flex items-center justify-between">
                                 <div>
-                                    <h3 className="text-white font-serif tracking-wider text-lg">编辑素材</h3>
-                                    <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-widest">EDIT MATERIAL</p>
+                                    <h3 className="text-white font-serif tracking-wider text-base">编辑素材</h3>
                                 </div>
                                 <button
                                     onClick={(e) => { e.stopPropagation(); setSelectedId(null); }}
-                                    className="w-8 h-8 bg-slate-700 hover:bg-slate-600 text-white rounded-lg flex items-center justify-center transition"
+                                    className="w-7 h-7 bg-slate-700 hover:bg-slate-600 text-white rounded-lg flex items-center justify-center transition text-sm"
                                 >
                                     ✕
                                 </button>
                             </div>
 
                             {/* Tolerance 滑杆 */}
-                            <div className="p-4 border-b border-slate-700">
-                                <div className="flex justify-between items-center mb-3">
+                            <div className="p-3 border-b border-slate-700">
+                                <div className="flex justify-between items-center mb-2">
                                     <span className="text-xs font-bold tracking-wide text-slate-300">
-                                        去背景强度 (Tolerance)
+                                        去背景强度
                                     </span>
                                     <span className="text-xs text-cyan-400 font-mono bg-cyan-900/30 px-2 rounded">
                                         {Number(selectedFile.tolerance).toFixed(1)}
                                     </span>
                                 </div>
-                                <div className="relative h-6 flex items-center select-none w-full">
-                                    <div className="absolute w-full h-1.5 bg-slate-600 rounded-lg top-1/2 -translate-y-1/2 left-0"></div>
+                                <div className="relative h-5 flex items-center select-none w-full">
+                                    <div className="absolute w-full h-1 bg-slate-600 rounded-lg top-1/2 -translate-y-1/2 left-0"></div>
                                     <div
-                                        className="absolute h-1.5 bg-cyan-500 rounded-l-lg top-1/2 -translate-y-1/2 left-0 pointer-events-none"
+                                        className="absolute h-1 bg-cyan-500 rounded-l-lg top-1/2 -translate-y-1/2 left-0 pointer-events-none"
                                         style={{ width: `${(selectedFile.tolerance / 80) * 100}%` }}
                                     ></div>
                                     <input
@@ -508,8 +484,8 @@ function App() {
                             </div>
 
                             {/* 材质类型切换 */}
-                            <div className="p-4 border-b border-slate-700">
-                                <span className="text-xs font-bold tracking-wide text-slate-400 mb-3 block">
+                            <div className="p-3 border-b border-slate-700">
+                                <span className="text-xs font-bold tracking-wide text-slate-400 mb-2 block">
                                     材质模式
                                 </span>
                                 <div className="grid grid-cols-2 gap-2">
@@ -518,7 +494,6 @@ function App() {
                                         onMouseDown={(e) => {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            console.log('=== Image button clicked ===');
                                             if (!selectedFile) return;
                                             if (selectedFile.materialType === 'image') return;
                                             switchToImageMaterial(selectedFile).then(updated => {
@@ -528,15 +503,14 @@ function App() {
                                         onTouchStart={(e) => {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            console.log('=== Image button touched ===');
                                             if (!selectedFile) return;
                                             if (selectedFile.materialType === 'image') return;
                                             switchToImageMaterial(selectedFile).then(updated => {
                                                 setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
                                             });
                                         }}
-                                        style={{ pointerEvents: 'auto', zIndex: 50 }}
-                                        className={`px-4 py-3 rounded-xl text-sm font-medium transition border relative ${
+                                        style={{ pointerEvents: 'auto' }}
+                                        className={`px-3 py-2 rounded-lg text-xs font-medium transition border relative ${
                                             selectedFile?.materialType === 'image'
                                                 ? 'bg-blue-600 border-blue-500 text-white shadow-lg'
                                                 : 'bg-transparent border-slate-600 text-slate-300 hover:border-blue-500'
@@ -549,7 +523,6 @@ function App() {
                                         onMouseDown={(e) => {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            console.log('=== Color button clicked ===');
                                             if (!selectedFile) return;
                                             if (selectedFile.materialType === 'solid-color') return;
                                             const color = selectedFile.color || editingColor || generateRandomColor();
@@ -561,7 +534,6 @@ function App() {
                                         onTouchStart={(e) => {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            console.log('=== Color button touched ===');
                                             if (!selectedFile) return;
                                             if (selectedFile.materialType === 'solid-color') return;
                                             const color = selectedFile.color || editingColor || generateRandomColor();
@@ -570,8 +542,8 @@ function App() {
                                                 setEditingColor(color);
                                             });
                                         }}
-                                        style={{ pointerEvents: 'auto', zIndex: 50 }}
-                                        className={`px-4 py-3 rounded-xl text-sm font-medium transition border relative ${
+                                        style={{ pointerEvents: 'auto' }}
+                                        className={`px-3 py-2 rounded-lg text-xs font-medium transition border relative ${
                                             selectedFile?.materialType === 'solid-color'
                                                 ? 'bg-purple-600 border-purple-500 text-white shadow-lg'
                                                 : 'bg-transparent border-slate-600 text-slate-300 hover:border-purple-500'
@@ -584,38 +556,44 @@ function App() {
 
                             {/* 纯色材质控制面板 */}
                             {selectedFile?.materialType === 'solid-color' && (
-                                <div className="flex-1 p-4 overflow-y-auto">
-                                    <div className="space-y-3 p-3 bg-slate-900/50 rounded-xl border border-slate-700">
+                                <div className="flex-1 p-3 overflow-y-auto">
+                                    <div className="space-y-2 p-2 bg-slate-900/50 rounded-xl border border-slate-700">
                                         <div className="flex items-center justify-between">
                                             <span className="text-xs font-bold text-slate-300">颜色设置</span>
                                             <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
                                                 <input
                                                     type="checkbox"
                                                     checked={useRandomColor}
-                                                    onChange={(e) => setUseRandomColor(e.target.checked)}
-                                                    className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-purple-600"
+                                                    onChange={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        setUseRandomColor(e.target.checked);
+                                                    }}
+                                                    style={{ pointerEvents: 'auto' }}
+                                                    className="w-3 h-3 rounded border-slate-600 bg-slate-800 text-purple-600"
                                                 />
                                                 随机
                                             </label>
                                         </div>
 
                                         {!useRandomColor ? (
-                                            <div className="space-y-3">
+                                            <div className="space-y-2">
                                                 <input
                                                     type="color"
                                                     value={selectedFile.color || editingColor}
                                                     onChange={(e) => {
+                                                        e.stopPropagation();
                                                         const newColor = e.target.value;
                                                         generateSolidColorMaterial(selectedFile, newColor).then(updated => {
                                                             setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
                                                             setEditingColor(newColor);
                                                         });
                                                     }}
-                                                    style={{ pointerEvents: 'auto', zIndex: 50 }}
-                                                    className="w-full h-16 rounded-lg border-2 border-slate-600 cursor-pointer relative"
+                                                    style={{ pointerEvents: 'auto' }}
+                                                    className="w-full h-10 rounded border border-slate-600 cursor-pointer"
                                                 />
                                                 <div className="text-xs text-slate-400">
-                                                    当前颜色: <span className="font-mono text-slate-300">{selectedFile.color || editingColor}</span>
+                                                    {selectedFile.color || editingColor}
                                                 </div>
                                             </div>
                                         ) : (
@@ -623,22 +601,19 @@ function App() {
                                                 type="button"
                                                 onMouseDown={(e) => {
                                                     e.preventDefault();
+                                                    e.stopPropagation();
                                                     const newColor = generateRandomColor();
                                                     generateSolidColorMaterial(selectedFile, newColor).then(updated => {
                                                         setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
                                                         setEditingColor(newColor);
                                                     });
                                                 }}
-                                                style={{ pointerEvents: 'auto', zIndex: 50 }}
-                                                className="w-full px-4 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition relative"
+                                                style={{ pointerEvents: 'auto' }}
+                                                className="w-full px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-xs font-medium transition"
                                             >
-                                                🎲 生成随机颜色
+                                                🎲 随机颜色
                                             </button>
                                         )}
-
-                                        <div className="text-xs text-slate-500 text-center pt-2 border-t border-slate-700">
-                                            💡 调整上方 Tolerance 可改变透明度效果
-                                        </div>
                                     </div>
                                 </div>
                             )}

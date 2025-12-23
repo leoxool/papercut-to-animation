@@ -6,7 +6,7 @@ import { removeBackground, getSquareCanvas512 } from './utils/imageProcessing';
 
 function App() {
     const [files, setFiles] = useState([]);
-    const [defaultTolerance, setDefaultTolerance] = useState(30);
+    const [defaultTolerance, setDefaultTolerance] = useState(38); // ★★★ 修改：默认去背景强度改为38 ★★★
     const [selectedId, setSelectedId] = useState(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [isZipping, setIsZipping] = useState(false);
@@ -15,10 +15,9 @@ function App() {
     const [videoAspectRatio, setVideoAspectRatio] = useState(1);
     const [viewMode, setViewMode] = useState('capture');
 
-    // ★★★ 新增：材质模式选择 ★★★
-    const [materialMode, setMaterialMode] = useState('image'); // 'image' 或 'solid-color'
-    const [selectedColor, setSelectedColor] = useState('#ff6b9d'); // 默认粉红色
-    const [useRandomColor, setUseRandomColor] = useState(true);
+    // ★★★ 新增：纯色材质编辑状态（仅在详情页使用） ★★★
+    const [editingColor, setEditingColor] = useState('#ff6b9d');
+    const [useRandomColor, setUseRandomColor] = useState(false);
 
     const [audioUrl, setAudioUrl] = useState(null);
     
@@ -82,25 +81,41 @@ function App() {
         if (v.videoWidth && v.videoHeight) setVideoAspectRatio(v.videoWidth / v.videoHeight);
     };
 
-    // ★★★ 新增：生成随机鲜艳颜色 ★★★
-    const generateRandomVibrantColor = () => {
+    // ★★★ 修改：生成自然随机颜色（不限制高纯度） ★★★
+    const generateRandomColor = () => {
         const hue = Math.random() * 360;
-        const saturation = 70 + Math.random() * 30; // 70-100%
-        const lightness = 45 + Math.random() * 15; // 45-60%
+        const saturation = 20 + Math.random() * 60; // 20-80%（更自然的饱和度）
+        const lightness = 30 + Math.random() * 50; // 30-80%（更自然的亮度）
         return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
     };
 
     const reProcessFile = async (fileObj, newTolerance) => {
         return new Promise((resolve) => {
             const img = new Image();
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = 512; canvas.height = 512;
-                canvas.getContext('2d').drawImage(img, 0, 0);
-                const processedCanvas = removeBackground(canvas, newTolerance);
-                processedCanvas.toBlob((blob) => {
-                    resolve({ ...fileObj, tolerance: newTolerance, processedUrl: URL.createObjectURL(blob), blob: blob });
-                }, 'image/png');
+            img.onload = async () => {
+                if (fileObj.materialType === 'solid-color') {
+                    // ★★★ 纯色材质：保持颜色，重新生成 ★★★
+                    const color = fileObj.color || editingColor || generateRandomColor();
+                    const updated = await generateSolidColorMaterial(
+                        { ...fileObj, tolerance: newTolerance },
+                        color
+                    );
+                    resolve(updated);
+                } else {
+                    // ★★★ 图像材质：原有逻辑 ★★★
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 512; canvas.height = 512;
+                    canvas.getContext('2d').drawImage(img, 0, 0);
+                    const processedCanvas = removeBackground(canvas, newTolerance);
+                    processedCanvas.toBlob((blob) => {
+                        resolve({
+                            ...fileObj,
+                            tolerance: newTolerance,
+                            processedUrl: URL.createObjectURL(blob),
+                            blob: blob
+                        });
+                    }, 'image/png');
+                }
             };
             img.src = fileObj.originalUrl;
         });
@@ -130,70 +145,27 @@ function App() {
 
         const video = videoRef.current;
         const w = video.videoWidth; const h = video.videoHeight;
+        const rawSquareCanvas = getSquareCanvas512(video, w, h);
+        const rawSquareUrl = rawSquareCanvas.toDataURL('image/png');
+        const processCanvas = document.createElement('canvas');
+        processCanvas.width = 512; processCanvas.height = 512;
+        processCanvas.getContext('2d').drawImage(rawSquareCanvas, 0, 0);
+        const finalCanvas = removeBackground(processCanvas, defaultTolerance);
 
-        if (materialMode === 'image') {
-            // 原有逻辑：图像材质
-            const rawSquareCanvas = getSquareCanvas512(video, w, h);
-            const rawSquareUrl = rawSquareCanvas.toDataURL('image/png');
-            const processCanvas = document.createElement('canvas');
-            processCanvas.width = 512; processCanvas.height = 512;
-            processCanvas.getContext('2d').drawImage(rawSquareCanvas, 0, 0);
-            const finalCanvas = removeBackground(processCanvas, defaultTolerance);
-
-            finalCanvas.toBlob(blob => {
-                const newFile = {
-                    id: Date.now(),
-                    name: `capture_${Date.now()}.png`,
-                    originalUrl: rawSquareUrl,
-                    processedUrl: URL.createObjectURL(blob),
-                    blob: blob,
-                    tolerance: defaultTolerance,
-                    materialType: 'image',
-                    status: 'done'
-                };
-                setFiles(prev => [...prev, newFile]);
-            }, 'image/png');
-        } else {
-            // ★★★ 新增：纯色材质逻辑 ★★★
-            const rawSquareCanvas = getSquareCanvas512(video, w, h);
-            const rawSquareUrl = rawSquareCanvas.toDataURL('image/png');
-            const color = useRandomColor ? generateRandomVibrantColor() : selectedColor;
-
-            const processCanvas = document.createElement('canvas');
-            processCanvas.width = 512; processCanvas.height = 512;
-            const ctx = processCanvas.getContext('2d');
-            ctx.drawImage(rawSquareCanvas, 0, 0);
-
-            // 创建纯色 alpha 遮罩
-            const maskCanvas = removeBackground(processCanvas, defaultTolerance);
-
-            // 将遮罩应用到纯色
-            const colorCanvas = document.createElement('canvas');
-            colorCanvas.width = 512; colorCanvas.height = 512;
-            const colorCtx = colorCanvas.getContext('2d');
-            colorCtx.fillStyle = color;
-            colorCtx.fillRect(0, 0, 512, 512);
-
-            // 应用 alpha 遮罩
-            colorCtx.globalCompositeOperation = 'destination-in';
-            colorCtx.drawImage(maskCanvas, 0, 0);
-
-            colorCanvas.toBlob(blob => {
-                const newFile = {
-                    id: Date.now(),
-                    name: `color_capture_${Date.now()}.png`,
-                    originalUrl: rawSquareUrl,
-                    processedUrl: URL.createObjectURL(blob),
-                    blob: blob,
-                    tolerance: defaultTolerance,
-                    materialType: 'solid-color',
-                    color: color,
-                    status: 'done'
-                };
-                setFiles(prev => [...prev, newFile]);
-            }, 'image/png');
-        }
-    }, [defaultTolerance, materialMode, selectedColor, useRandomColor]);
+        finalCanvas.toBlob(blob => {
+            const newFile = {
+                id: Date.now(),
+                name: `capture_${Date.now()}.png`,
+                originalUrl: rawSquareUrl,
+                processedUrl: URL.createObjectURL(blob),
+                blob: blob,
+                tolerance: defaultTolerance,
+                materialType: 'image', // ★★★ 默认为图像材质 ★★★
+                status: 'done'
+            };
+            setFiles(prev => [...prev, newFile]);
+        }, 'image/png');
+    }, [defaultTolerance]); // ★★★ 移除依赖项，简化逻辑 ★★★
 
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -221,53 +193,21 @@ function App() {
                     processCanvas.width = 512; processCanvas.height = 512;
                     const ctx = processCanvas.getContext('2d');
                     ctx.drawImage(rawSquareCanvas, 0, 0);
-
-                    if (materialMode === 'image') {
-                        // 图像材质逻辑
-                        const finalCanvas = removeBackground(processCanvas, defaultTolerance);
-                        finalCanvas.toBlob(blob => {
-                            const newId = Date.now() + Math.random() + index;
-                            resolve({
-                                id: newId,
-                                name: file.name.replace(/\.[^/.]+$/, "") + "_512.png",
-                                originalUrl: rawSquareUrl,
-                                processedUrl: URL.createObjectURL(blob),
-                                blob: blob,
-                                tolerance: defaultTolerance,
-                                materialType: 'image',
-                                status: 'done'
-                            });
-                            URL.revokeObjectURL(tempUrl);
-                        }, 'image/png');
-                    } else {
-                        // ★★★ 纯色材质逻辑 ★★★
-                        const color = useRandomColor ? generateRandomVibrantColor() : selectedColor;
-                        const maskCanvas = removeBackground(processCanvas, defaultTolerance);
-
-                        const colorCanvas = document.createElement('canvas');
-                        colorCanvas.width = 512; colorCanvas.height = 512;
-                        const colorCtx = colorCanvas.getContext('2d');
-                        colorCtx.fillStyle = color;
-                        colorCtx.fillRect(0, 0, 512, 512);
-                        colorCtx.globalCompositeOperation = 'destination-in';
-                        colorCtx.drawImage(maskCanvas, 0, 0);
-
-                        colorCanvas.toBlob(blob => {
-                            const newId = Date.now() + Math.random() + index;
-                            resolve({
-                                id: newId,
-                                name: file.name.replace(/\.[^/.]+$/, "") + `_color_${Date.now()}.png`,
-                                originalUrl: rawSquareUrl,
-                                processedUrl: URL.createObjectURL(blob),
-                                blob: blob,
-                                tolerance: defaultTolerance,
-                                materialType: 'solid-color',
-                                color: color,
-                                status: 'done'
-                            });
-                            URL.revokeObjectURL(tempUrl);
-                        }, 'image/png');
-                    }
+                    const finalCanvas = removeBackground(processCanvas, defaultTolerance);
+                    finalCanvas.toBlob(blob => {
+                        const newId = Date.now() + Math.random() + index;
+                        resolve({
+                            id: newId,
+                            name: file.name.replace(/\.[^/.]+$/, "") + "_512.png",
+                            originalUrl: rawSquareUrl,
+                            processedUrl: URL.createObjectURL(blob),
+                            blob: blob,
+                            tolerance: defaultTolerance,
+                            materialType: 'image', // ★★★ 默认为图像材质 ★★★
+                            status: 'done'
+                        });
+                        URL.revokeObjectURL(tempUrl);
+                    }, 'image/png');
                 };
                 img.src = tempUrl;
             });
@@ -283,8 +223,69 @@ function App() {
             const url = URL.createObjectURL(file);
             setAudioUrl(url);
         }
-        e.target.value = ''; 
+        e.target.value = '';
     };
+
+    // ★★★ 新增：生成纯色材质 ★★★
+    const generateSolidColorMaterial = useCallback(async (fileObj, color) => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512; canvas.height = 512;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+
+                // 创建 alpha 遮罩
+                const maskCanvas = removeBackground(canvas, fileObj.tolerance);
+
+                // 生成纯色
+                const colorCanvas = document.createElement('canvas');
+                colorCanvas.width = 512; colorCanvas.height = 512;
+                const colorCtx = colorCanvas.getContext('2d');
+                colorCtx.fillStyle = color;
+                colorCtx.fillRect(0, 0, 512, 512);
+                colorCtx.globalCompositeOperation = 'destination-in';
+                colorCtx.drawImage(maskCanvas, 0, 0);
+
+                colorCanvas.toBlob(blob => {
+                    resolve({
+                        ...fileObj,
+                        materialType: 'solid-color',
+                        color: color,
+                        processedUrl: URL.createObjectURL(blob),
+                        blob: blob
+                    });
+                }, 'image/png');
+            };
+            img.src = fileObj.originalUrl;
+        });
+    }, []);
+
+    // ★★★ 新增：切换到图像材质（保持数据） ★★★
+    const switchToImageMaterial = useCallback(async (fileObj) => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512; canvas.height = 512;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                const finalCanvas = removeBackground(canvas, fileObj.tolerance);
+
+                finalCanvas.toBlob(blob => {
+                    resolve({
+                        ...fileObj,
+                        materialType: 'image',
+                        // 保留 color 数据以便切换回来
+                        processedUrl: URL.createObjectURL(blob),
+                        blob: blob
+                    });
+                }, 'image/png');
+            };
+            img.src = fileObj.originalUrl;
+        });
+    }, []);
 
     const downloadZip = async () => {
         if (files.length === 0) return;
@@ -355,91 +356,6 @@ function App() {
                             className="absolute w-full h-full opacity-100 z-20 cursor-pointer inset-0 m-0 p-0"
                         />
                     </div>
-                </div>
-
-                {/* ★★★ 新增：材质模式选择器 ★★★ */}
-                <div className="px-6 py-6 bg-slate-800 border-b border-slate-700">
-                    <div className="mb-4">
-                        <span className="text-xs font-bold tracking-wide text-slate-400 mb-3 block">
-                            材质模式 (Material Mode)
-                        </span>
-                        <div className="grid grid-cols-2 gap-2">
-                            <button
-                                onClick={() => setMaterialMode('image')}
-                                className={`px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 border ${
-                                    materialMode === 'image'
-                                        ? 'bg-blue-600 border-blue-500 text-white shadow-lg'
-                                        : 'bg-transparent border-slate-600 text-slate-400 hover:border-blue-500 hover:text-blue-400'
-                                }`}
-                            >
-                                📷 图像材质
-                            </button>
-                            <button
-                                onClick={() => setMaterialMode('solid-color')}
-                                className={`px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 border ${
-                                    materialMode === 'solid-color'
-                                        ? 'bg-purple-600 border-purple-500 text-white shadow-lg'
-                                        : 'bg-transparent border-slate-600 text-slate-400 hover:border-purple-500 hover:text-purple-400'
-                                }`}
-                            >
-                                🎨 纯色材质
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* ★★★ 纯色材质控制面板 ★★★ */}
-                    {materialMode === 'solid-color' && (
-                        <div className="space-y-4 p-4 bg-slate-900/50 rounded-xl border border-slate-700">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold tracking-wide text-slate-300">
-                                    颜色选择
-                                </span>
-                                <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={useRandomColor}
-                                        onChange={(e) => setUseRandomColor(e.target.checked)}
-                                        className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-purple-600 focus:ring-purple-500"
-                                    />
-                                    随机颜色
-                                </label>
-                            </div>
-
-                            {!useRandomColor && (
-                                <div className="space-y-2">
-                                    <div className="flex items-center gap-3">
-                                        <input
-                                            type="color"
-                                            value={selectedColor}
-                                            onChange={(e) => setSelectedColor(e.target.value)}
-                                            className="w-12 h-12 rounded-lg border-2 border-slate-600 cursor-pointer"
-                                        />
-                                        <div className="flex-1">
-                                            <div className="text-xs text-slate-400 mb-1">当前颜色</div>
-                                            <div className="font-mono text-sm text-slate-300">{selectedColor}</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {useRandomColor && (
-                                <div className="space-y-2">
-                                    <div className="text-xs text-slate-400">
-                                        每次采集将随机生成鲜艳色彩
-                                    </div>
-                                    <button
-                                        onClick={() => {
-                                            const newColor = generateRandomVibrantColor();
-                                            setSelectedColor(newColor);
-                                        }}
-                                        className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition"
-                                    >
-                                        🎲 生成随机颜色预览
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    )}
                 </div>
 
                 <div className="hidden md:grid grid-cols-2 p-4 gap-3 bg-slate-800">
@@ -535,26 +451,154 @@ function App() {
 
             <div className="order-1 md:order-2 flex-1 relative bg-black flex items-center justify-center overflow-hidden" onClick={() => setSelectedId(null)}>
                 {selectedFile ? (
-                    <div 
-                        className="relative shadow-2xl border border-gray-300 bg-gray-100 overflow-hidden w-full h-full flex items-center justify-center p-10" 
-                        onClick={(e) => e.stopPropagation()} 
+                    <div
+                        className="relative w-full h-full flex"
+                        onClick={(e) => e.stopPropagation()}
                     >
-                        <div className="absolute inset-0 checkerboard opacity-10"></div>
-                        <img src={selectedFile.processedUrl} className="max-w-full max-h-full object-contain relative z-10 drop-shadow-2xl filter drop-shadow-[0_20px_20px_rgba(0,0,0,0.5)]" alt="Editing" />
-                        
-                        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-                            <div className="bg-black/60 text-white text-xs px-6 py-2 rounded-full backdrop-blur-md border border-white/10 shadow-xl">
-                                <span className="font-bold text-green-400 mr-2">DETAILS VIEW</span>
-                                <span className="text-slate-300">Tolerance: <span className="text-white font-mono">{selectedFile.tolerance}</span></span>
-                            </div>
+                        {/* ★★★ 左侧：预览区域（移除阴影效果） ★★★ */}
+                        <div className="flex-1 flex items-center justify-center bg-gray-100">
+                            <div className="checkerboard opacity-20 w-full h-full absolute inset-0"></div>
+                            <img
+                                src={selectedFile.processedUrl}
+                                className="max-w-full max-h-full object-contain relative z-10"
+                                alt="Editing"
+                            />
                         </div>
 
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); setSelectedId(null); }}
-                            className="absolute top-6 right-6 z-50 w-12 h-12 bg-white/10 hover:bg-white/20 text-slate-800 hover:text-white rounded-full flex items-center justify-center transition backdrop-blur-md border border-slate-400 hover:border-white/10 cursor-pointer pointer-events-auto"
-                        >
-                            ✕
-                        </button>
+                        {/* ★★★ 右侧：控制面板 ★★★ */}
+                        <div className="w-80 bg-slate-800 border-l border-slate-700 flex flex-col">
+                            {/* 标题栏 */}
+                            <div className="p-4 border-b border-slate-700 flex items-center justify-between">
+                                <div>
+                                    <h3 className="text-white font-serif tracking-wider text-lg">编辑素材</h3>
+                                    <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-widest">EDIT MATERIAL</p>
+                                </div>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setSelectedId(null); }}
+                                    className="w-8 h-8 bg-slate-700 hover:bg-slate-600 text-white rounded-lg flex items-center justify-center transition"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+
+                            {/* Tolerance 滑杆 */}
+                            <div className="p-4 border-b border-slate-700">
+                                <div className="flex justify-between items-center mb-3">
+                                    <span className="text-xs font-bold tracking-wide text-slate-300">
+                                        去背景强度 (Tolerance)
+                                    </span>
+                                    <span className="text-xs text-cyan-400 font-mono bg-cyan-900/30 px-2 rounded">
+                                        {Number(selectedFile.tolerance).toFixed(1)}
+                                    </span>
+                                </div>
+                                <div className="relative h-6 flex items-center select-none w-full">
+                                    <div className="absolute w-full h-1.5 bg-slate-600 rounded-lg top-1/2 -translate-y-1/2 left-0"></div>
+                                    <div
+                                        className="absolute h-1.5 bg-cyan-500 rounded-l-lg top-1/2 -translate-y-1/2 left-0 pointer-events-none"
+                                        style={{ width: `${(selectedFile.tolerance / 80) * 100}%` }}
+                                    ></div>
+                                    <input
+                                        type="range"
+                                        min="1" max="80" step="0.5"
+                                        value={selectedFile.tolerance}
+                                        onChange={handleSliderChange}
+                                        className="absolute w-full h-full opacity-100 z-20 cursor-pointer inset-0 m-0 p-0"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* 材质类型切换 */}
+                            <div className="p-4 border-b border-slate-700">
+                                <span className="text-xs font-bold tracking-wide text-slate-400 mb-3 block">
+                                    材质模式
+                                </span>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        onClick={async () => {
+                                            const updated = await switchToImageMaterial(selectedFile);
+                                            setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                        }}
+                                        className={`px-4 py-3 rounded-xl text-sm font-medium transition border ${
+                                            selectedFile.materialType === 'image'
+                                                ? 'bg-blue-600 border-blue-500 text-white shadow-lg'
+                                                : 'bg-transparent border-slate-600 text-slate-300 hover:border-blue-500'
+                                        }`}
+                                    >
+                                        📷 图像
+                                    </button>
+                                    <button
+                                        onClick={async () => {
+                                            const color = selectedFile.color || editingColor || generateRandomColor();
+                                            const updated = await generateSolidColorMaterial(selectedFile, color);
+                                            setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                            setEditingColor(color);
+                                        }}
+                                        className={`px-4 py-3 rounded-xl text-sm font-medium transition border ${
+                                            selectedFile.materialType === 'solid-color'
+                                                ? 'bg-purple-600 border-purple-500 text-white shadow-lg'
+                                                : 'bg-transparent border-slate-600 text-slate-300 hover:border-purple-500'
+                                        }`}
+                                    >
+                                        🎨 纯色
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* 纯色材质控制面板 */}
+                            {selectedFile.materialType === 'solid-color' && (
+                                <div className="flex-1 p-4 overflow-y-auto">
+                                    <div className="space-y-3 p-3 bg-slate-900/50 rounded-xl border border-slate-700">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-xs font-bold text-slate-300">颜色设置</span>
+                                            <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={useRandomColor}
+                                                    onChange={(e) => setUseRandomColor(e.target.checked)}
+                                                    className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-purple-600"
+                                                />
+                                                随机
+                                            </label>
+                                        </div>
+
+                                        {!useRandomColor ? (
+                                            <div className="space-y-3">
+                                                <input
+                                                    type="color"
+                                                    value={selectedFile.color || editingColor}
+                                                    onChange={async (e) => {
+                                                        const newColor = e.target.value;
+                                                        const updated = await generateSolidColorMaterial(selectedFile, newColor);
+                                                        setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                                        setEditingColor(newColor);
+                                                    }}
+                                                    className="w-full h-16 rounded-lg border-2 border-slate-600 cursor-pointer"
+                                                />
+                                                <div className="text-xs text-slate-400">
+                                                    当前颜色: <span className="font-mono text-slate-300">{selectedFile.color || editingColor}</span>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                onClick={async () => {
+                                                    const newColor = generateRandomColor();
+                                                    const updated = await generateSolidColorMaterial(selectedFile, newColor);
+                                                    setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                                    setEditingColor(newColor);
+                                                }}
+                                                className="w-full px-4 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition"
+                                            >
+                                                🎲 生成随机颜色
+                                            </button>
+                                        )}
+
+                                        <div className="text-xs text-slate-500 text-center pt-2 border-t border-slate-700">
+                                            💡 调整上方 Tolerance 可改变透明度效果
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 ) : (
                     <div className="relative w-full h-full flex items-center justify-center bg-black">

@@ -19,6 +19,10 @@ function App() {
     const [editingColor, setEditingColor] = useState('#ff6b9d');
     const [useRandomColor, setUseRandomColor] = useState(false);
 
+    // ★★★ 新增：下载命名面板状态 ★★★
+    const [showDownloadDialog, setShowDownloadDialog] = useState(false);
+    const [zipFileName, setZipFileName] = useState('papercut_assets');
+
     // ★★★ 默认使用love.mp3作为MV模式音乐 ★★★
     const audioUrl = '/love.mp3';
     
@@ -279,7 +283,7 @@ function App() {
         });
     }, []);
 
-    const downloadZip = async () => {
+    const downloadZip = async (customName) => {
         if (files.length === 0) return;
         setIsZipping(true);
         const zip = new JSZip();
@@ -287,7 +291,7 @@ function App() {
         const content = await zip.generateAsync({ type: "blob" });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(content);
-        link.download = "papercut_ecology_assets.zip";
+        link.download = `${customName || 'papercut_assets'}.zip`;
         link.click();
         setIsZipping(false);
     };
@@ -331,7 +335,7 @@ function App() {
                      <button onClick={() => fileInputRef.current.click()} className="px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20" disabled={isProcessing}>
                         <span>导入图片</span>
                     </button>
-                    <button onClick={downloadZip} className={`px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 border ${files.length > 0 ? 'bg-cyan-600 border-cyan-500 text-white shadow-lg shadow-cyan-900/20' : 'bg-transparent border-slate-600 text-slate-400 hover:border-cyan-500 hover:text-cyan-400'}`} title="下载所有素材">
+                    <button onClick={() => setShowDownloadDialog(true)} className={`px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 border ${files.length > 0 ? 'bg-cyan-600 border-cyan-500 text-white shadow-lg shadow-cyan-900/20' : 'bg-transparent border-slate-600 text-slate-400 hover:border-cyan-500 hover:text-cyan-400'}`} title="下载所有素材">
                         <span>⬇ 下载素材</span>
                     </button>
                 </div>
@@ -355,16 +359,15 @@ function App() {
                                         selectedId === file.id ? 'border-green-500 ring-2 ring-green-500/20 shadow-xl z-10 scale-105' : 'border-slate-600 hover:border-slate-400'
                                     }`}
                                 >
-                                    <div className="absolute top-1 left-1 text-[8px] bg-black/40 px-1.5 py-0.5 rounded text-white z-10 font-mono">{index + 1}</div>
+                                    <div className="absolute top-1 left-1 text-[8px] bg-black/40 px-1.5 py-0.5 rounded text-white z-20 font-mono">{index + 1}</div>
                                     {/* ★★★ 新增：材质类型标签 ★★★ */}
                                     {file.materialType === 'solid-color' && (
-                                        <div className="absolute top-1 right-1 flex items-center gap-1">
-                                            <div className="w-4 h-4 rounded border border-white/50" style={{ backgroundColor: file.color }}></div>
+                                        <div className="absolute top-1 right-1 z-30">
                                             <div className="text-[8px] bg-purple-600/90 px-1 py-0.5 rounded text-white font-mono">COLOR</div>
                                         </div>
                                     )}
                                     {file.materialType === 'image' && (
-                                        <div className="absolute top-1 right-1 text-[8px] bg-blue-600/90 px-1.5 py-0.5 rounded text-white font-mono">IMG</div>
+                                        <div className="absolute top-1 right-1 text-[8px] bg-blue-600/90 px-1.5 py-0.5 rounded text-white z-30 font-mono">IMG</div>
                                     )}
                                     <div className="w-full h-full checkerboard flex items-center justify-center p-2">
                                         {isProcessing && selectedId === file.id ? (
@@ -392,25 +395,17 @@ function App() {
 
                 <div className="p-4 bg-slate-900 border-t border-slate-800">
                     <div className="flex gap-3">
-                         <button 
+                         <button
                             onClick={() => setViewMode('gallery')}
                             disabled={files.length === 0}
                             className="flex-1 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl flex items-center justify-center font-bold shadow-lg disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95"
                         >
                             开始预览素材
                         </button>
-                        <button 
-                            onClick={downloadZip}
-                            disabled={files.length === 0 || isProcessing || isZipping}
-                            className="w-14 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white shadow-lg flex items-center justify-center transition-colors disabled:opacity-30"
-                            title="下载资产"
-                        >
-                            ⬇
-                        </button>
                     </div>
                     <div className="flex md:hidden gap-2 mt-3 pt-3 border-t border-slate-800">
                         <button onClick={() => fileInputRef.current.click()} className="flex-1 py-2 bg-slate-800 rounded-lg text-xs text-blue-200 border border-slate-700">导入图片</button>
-                        <button onClick={downloadZip} className={`flex-1 py-2 rounded-lg text-xs border ${files.length > 0 ? 'bg-cyan-900/30 border-cyan-800 text-cyan-200' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+                        <button onClick={() => setShowDownloadDialog(true)} className={`flex-1 py-2 rounded-lg text-xs border ${files.length > 0 ? 'bg-cyan-900/30 border-cyan-800 text-cyan-200' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
                             下载
                         </button>
                     </div>
@@ -652,6 +647,40 @@ function App() {
             </div>
             
             <input type="file" multiple accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+
+            {/* ★★★ 下载命名面板 ★★★ */}
+            {showDownloadDialog && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999]" onClick={() => setShowDownloadDialog(false)}>
+                    <div className="bg-slate-800 rounded-2xl p-6 w-96 border border-slate-700 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <h3 className="text-white font-serif text-lg mb-4">命名下载文件</h3>
+                        <input
+                            type="text"
+                            value={zipFileName}
+                            onChange={(e) => setZipFileName(e.target.value)}
+                            placeholder="输入文件名"
+                            className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                            autoFocus
+                        />
+                        <div className="flex gap-3 mt-6">
+                            <button
+                                onClick={() => {
+                                    downloadZip(zipFileName);
+                                    setShowDownloadDialog(false);
+                                }}
+                                className="flex-1 py-3 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg font-medium transition"
+                            >
+                                确认下载
+                            </button>
+                            <button
+                                onClick={() => setShowDownloadDialog(false)}
+                                className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition"
+                            >
+                                取消
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

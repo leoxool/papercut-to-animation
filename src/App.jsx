@@ -5,16 +5,21 @@ import LoadingScreen from './components/LoadingScreen';
 import { removeBackground, getSquareCanvas512 } from './utils/imageProcessing';
 
 function App() {
-    const [files, setFiles] = useState([]); 
-    const [defaultTolerance, setDefaultTolerance] = useState(30); 
+    const [files, setFiles] = useState([]);
+    const [defaultTolerance, setDefaultTolerance] = useState(30);
     const [selectedId, setSelectedId] = useState(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [isZipping, setIsZipping] = useState(false);
     const [cameraActive, setCameraActive] = useState(false);
-    const [flashEffect, setFlashEffect] = useState(false); 
+    const [flashEffect, setFlashEffect] = useState(false);
     const [videoAspectRatio, setVideoAspectRatio] = useState(1);
     const [viewMode, setViewMode] = useState('capture');
-    
+
+    // ★★★ 新增：材质模式选择 ★★★
+    const [materialMode, setMaterialMode] = useState('image'); // 'image' 或 'solid-color'
+    const [selectedColor, setSelectedColor] = useState('#ff6b9d'); // 默认粉红色
+    const [useRandomColor, setUseRandomColor] = useState(true);
+
     const [audioUrl, setAudioUrl] = useState(null);
     
     const [loading, setLoading] = useState(true);
@@ -77,6 +82,14 @@ function App() {
         if (v.videoWidth && v.videoHeight) setVideoAspectRatio(v.videoWidth / v.videoHeight);
     };
 
+    // ★★★ 新增：生成随机鲜艳颜色 ★★★
+    const generateRandomVibrantColor = () => {
+        const hue = Math.random() * 360;
+        const saturation = 70 + Math.random() * 30; // 70-100%
+        const lightness = 45 + Math.random() * 15; // 45-60%
+        return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+    };
+
     const reProcessFile = async (fileObj, newTolerance) => {
         return new Promise((resolve) => {
             const img = new Image();
@@ -114,28 +127,73 @@ function App() {
         if (!videoRef.current || !streamRef.current) return;
         setFlashEffect(true);
         setTimeout(() => setFlashEffect(false), 100);
+
         const video = videoRef.current;
         const w = video.videoWidth; const h = video.videoHeight;
-        const rawSquareCanvas = getSquareCanvas512(video, w, h);
-        const rawSquareUrl = rawSquareCanvas.toDataURL('image/png');
-        const processCanvas = document.createElement('canvas');
-        processCanvas.width = 512; processCanvas.height = 512;
-        processCanvas.getContext('2d').drawImage(rawSquareCanvas, 0, 0);
-        const finalCanvas = removeBackground(processCanvas, defaultTolerance);
-        
-        finalCanvas.toBlob(blob => {
-            const newFile = {
-                id: Date.now(),
-                name: `capture_${Date.now()}.png`,
-                originalUrl: rawSquareUrl,
-                processedUrl: URL.createObjectURL(blob),
-                blob: blob,
-                tolerance: defaultTolerance,
-                status: 'done'
-            };
-            setFiles(prev => [...prev, newFile]);
-        }, 'image/png');
-    }, [defaultTolerance]);
+
+        if (materialMode === 'image') {
+            // 原有逻辑：图像材质
+            const rawSquareCanvas = getSquareCanvas512(video, w, h);
+            const rawSquareUrl = rawSquareCanvas.toDataURL('image/png');
+            const processCanvas = document.createElement('canvas');
+            processCanvas.width = 512; processCanvas.height = 512;
+            processCanvas.getContext('2d').drawImage(rawSquareCanvas, 0, 0);
+            const finalCanvas = removeBackground(processCanvas, defaultTolerance);
+
+            finalCanvas.toBlob(blob => {
+                const newFile = {
+                    id: Date.now(),
+                    name: `capture_${Date.now()}.png`,
+                    originalUrl: rawSquareUrl,
+                    processedUrl: URL.createObjectURL(blob),
+                    blob: blob,
+                    tolerance: defaultTolerance,
+                    materialType: 'image',
+                    status: 'done'
+                };
+                setFiles(prev => [...prev, newFile]);
+            }, 'image/png');
+        } else {
+            // ★★★ 新增：纯色材质逻辑 ★★★
+            const rawSquareCanvas = getSquareCanvas512(video, w, h);
+            const rawSquareUrl = rawSquareCanvas.toDataURL('image/png');
+            const color = useRandomColor ? generateRandomVibrantColor() : selectedColor;
+
+            const processCanvas = document.createElement('canvas');
+            processCanvas.width = 512; processCanvas.height = 512;
+            const ctx = processCanvas.getContext('2d');
+            ctx.drawImage(rawSquareCanvas, 0, 0);
+
+            // 创建纯色 alpha 遮罩
+            const maskCanvas = removeBackground(processCanvas, defaultTolerance);
+
+            // 将遮罩应用到纯色
+            const colorCanvas = document.createElement('canvas');
+            colorCanvas.width = 512; colorCanvas.height = 512;
+            const colorCtx = colorCanvas.getContext('2d');
+            colorCtx.fillStyle = color;
+            colorCtx.fillRect(0, 0, 512, 512);
+
+            // 应用 alpha 遮罩
+            colorCtx.globalCompositeOperation = 'destination-in';
+            colorCtx.drawImage(maskCanvas, 0, 0);
+
+            colorCanvas.toBlob(blob => {
+                const newFile = {
+                    id: Date.now(),
+                    name: `color_capture_${Date.now()}.png`,
+                    originalUrl: rawSquareUrl,
+                    processedUrl: URL.createObjectURL(blob),
+                    blob: blob,
+                    tolerance: defaultTolerance,
+                    materialType: 'solid-color',
+                    color: color,
+                    status: 'done'
+                };
+                setFiles(prev => [...prev, newFile]);
+            }, 'image/png');
+        }
+    }, [defaultTolerance, materialMode, selectedColor, useRandomColor]);
 
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -153,7 +211,7 @@ function App() {
         if (selectedFiles.length === 0) return;
         setIsProcessing(true);
         const newProcessedFiles = await Promise.all(selectedFiles.map(async (file, index) => {
-             return new Promise((resolve) => {
+            return new Promise((resolve) => {
                 const img = new Image();
                 const tempUrl = URL.createObjectURL(file);
                 img.onload = () => {
@@ -161,28 +219,62 @@ function App() {
                     const rawSquareUrl = rawSquareCanvas.toDataURL('image/png');
                     const processCanvas = document.createElement('canvas');
                     processCanvas.width = 512; processCanvas.height = 512;
-                    processCanvas.getContext('2d').drawImage(rawSquareCanvas, 0, 0);
-                    const finalCanvas = removeBackground(processCanvas, defaultTolerance);
-                    finalCanvas.toBlob(blob => {
-                        const newId = Date.now() + Math.random() + index;
-                        resolve({
-                            id: newId,
-                            name: file.name.replace(/\.[^/.]+$/, "") + "_512.png",
-                            originalUrl: rawSquareUrl,
-                            processedUrl: URL.createObjectURL(blob),
-                            blob: blob,
-                            tolerance: defaultTolerance,
-                            status: 'done'
-                        });
-                        URL.revokeObjectURL(tempUrl);
-                    }, 'image/png');
+                    const ctx = processCanvas.getContext('2d');
+                    ctx.drawImage(rawSquareCanvas, 0, 0);
+
+                    if (materialMode === 'image') {
+                        // 图像材质逻辑
+                        const finalCanvas = removeBackground(processCanvas, defaultTolerance);
+                        finalCanvas.toBlob(blob => {
+                            const newId = Date.now() + Math.random() + index;
+                            resolve({
+                                id: newId,
+                                name: file.name.replace(/\.[^/.]+$/, "") + "_512.png",
+                                originalUrl: rawSquareUrl,
+                                processedUrl: URL.createObjectURL(blob),
+                                blob: blob,
+                                tolerance: defaultTolerance,
+                                materialType: 'image',
+                                status: 'done'
+                            });
+                            URL.revokeObjectURL(tempUrl);
+                        }, 'image/png');
+                    } else {
+                        // ★★★ 纯色材质逻辑 ★★★
+                        const color = useRandomColor ? generateRandomVibrantColor() : selectedColor;
+                        const maskCanvas = removeBackground(processCanvas, defaultTolerance);
+
+                        const colorCanvas = document.createElement('canvas');
+                        colorCanvas.width = 512; colorCanvas.height = 512;
+                        const colorCtx = colorCanvas.getContext('2d');
+                        colorCtx.fillStyle = color;
+                        colorCtx.fillRect(0, 0, 512, 512);
+                        colorCtx.globalCompositeOperation = 'destination-in';
+                        colorCtx.drawImage(maskCanvas, 0, 0);
+
+                        colorCanvas.toBlob(blob => {
+                            const newId = Date.now() + Math.random() + index;
+                            resolve({
+                                id: newId,
+                                name: file.name.replace(/\.[^/.]+$/, "") + `_color_${Date.now()}.png`,
+                                originalUrl: rawSquareUrl,
+                                processedUrl: URL.createObjectURL(blob),
+                                blob: blob,
+                                tolerance: defaultTolerance,
+                                materialType: 'solid-color',
+                                color: color,
+                                status: 'done'
+                            });
+                            URL.revokeObjectURL(tempUrl);
+                        }, 'image/png');
+                    }
                 };
                 img.src = tempUrl;
-             });
+            });
         }));
         setFiles(prev => [...prev, ...newProcessedFiles]);
         setIsProcessing(false);
-        e.target.value = ''; 
+        e.target.value = '';
     };
 
     const handleAudioUpload = (e) => {
@@ -251,18 +343,103 @@ function App() {
                     </div>
                     <div className="relative h-6 flex items-center select-none w-full">
                         <div className="absolute w-full h-1.5 bg-slate-600 rounded-lg top-1/2 -translate-y-1/2 left-0"></div>
-                        <div 
-                            className="absolute h-1.5 bg-cyan-500 rounded-l-lg top-1/2 -translate-y-1/2 left-0 pointer-events-none" 
+                        <div
+                            className="absolute h-1.5 bg-cyan-500 rounded-l-lg top-1/2 -translate-y-1/2 left-0 pointer-events-none"
                             style={{ width: `${(currentSliderValue / 80) * 100}%` }}
                         ></div>
-                        <input 
-                            type="range" 
+                        <input
+                            type="range"
                             min="1" max="80" step="0.5"
-                            value={currentSliderValue} 
-                            onChange={handleSliderChange} 
+                            value={currentSliderValue}
+                            onChange={handleSliderChange}
                             className="absolute w-full h-full opacity-100 z-20 cursor-pointer inset-0 m-0 p-0"
                         />
                     </div>
+                </div>
+
+                {/* ★★★ 新增：材质模式选择器 ★★★ */}
+                <div className="px-6 py-6 bg-slate-800 border-b border-slate-700">
+                    <div className="mb-4">
+                        <span className="text-xs font-bold tracking-wide text-slate-400 mb-3 block">
+                            材质模式 (Material Mode)
+                        </span>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button
+                                onClick={() => setMaterialMode('image')}
+                                className={`px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 border ${
+                                    materialMode === 'image'
+                                        ? 'bg-blue-600 border-blue-500 text-white shadow-lg'
+                                        : 'bg-transparent border-slate-600 text-slate-400 hover:border-blue-500 hover:text-blue-400'
+                                }`}
+                            >
+                                📷 图像材质
+                            </button>
+                            <button
+                                onClick={() => setMaterialMode('solid-color')}
+                                className={`px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 border ${
+                                    materialMode === 'solid-color'
+                                        ? 'bg-purple-600 border-purple-500 text-white shadow-lg'
+                                        : 'bg-transparent border-slate-600 text-slate-400 hover:border-purple-500 hover:text-purple-400'
+                                }`}
+                            >
+                                🎨 纯色材质
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* ★★★ 纯色材质控制面板 ★★★ */}
+                    {materialMode === 'solid-color' && (
+                        <div className="space-y-4 p-4 bg-slate-900/50 rounded-xl border border-slate-700">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold tracking-wide text-slate-300">
+                                    颜色选择
+                                </span>
+                                <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={useRandomColor}
+                                        onChange={(e) => setUseRandomColor(e.target.checked)}
+                                        className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-purple-600 focus:ring-purple-500"
+                                    />
+                                    随机颜色
+                                </label>
+                            </div>
+
+                            {!useRandomColor && (
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-3">
+                                        <input
+                                            type="color"
+                                            value={selectedColor}
+                                            onChange={(e) => setSelectedColor(e.target.value)}
+                                            className="w-12 h-12 rounded-lg border-2 border-slate-600 cursor-pointer"
+                                        />
+                                        <div className="flex-1">
+                                            <div className="text-xs text-slate-400 mb-1">当前颜色</div>
+                                            <div className="font-mono text-sm text-slate-300">{selectedColor}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {useRandomColor && (
+                                <div className="space-y-2">
+                                    <div className="text-xs text-slate-400">
+                                        每次采集将随机生成鲜艳色彩
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            const newColor = generateRandomVibrantColor();
+                                            setSelectedColor(newColor);
+                                        }}
+                                        className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition"
+                                    >
+                                        🎲 生成随机颜色预览
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 <div className="hidden md:grid grid-cols-2 p-4 gap-3 bg-slate-800">
@@ -287,17 +464,27 @@ function App() {
                             </div>
                         ) : (
                             files.map((file, index) => (
-                                <div 
-                                    key={file.id} 
+                                <div
+                                    key={file.id}
                                     onClick={(e) => { e.stopPropagation(); setSelectedId(file.id); }}
                                     className={`relative flex-shrink-0 w-20 h-20 md:w-full md:h-auto md:aspect-square bg-slate-700 rounded-xl overflow-hidden group cursor-pointer border transition-all duration-300 ${
                                         selectedId === file.id ? 'border-green-500 ring-2 ring-green-500/20 shadow-xl z-10 scale-105' : 'border-slate-600 hover:border-slate-400'
                                     }`}
                                 >
                                     <div className="absolute top-1 left-1 text-[8px] bg-black/40 px-1.5 py-0.5 rounded text-white z-10 font-mono">{index + 1}</div>
+                                    {/* ★★★ 新增：材质类型标签 ★★★ */}
+                                    {file.materialType === 'solid-color' && (
+                                        <div className="absolute top-1 right-1 flex items-center gap-1">
+                                            <div className="w-4 h-4 rounded border border-white/50" style={{ backgroundColor: file.color }}></div>
+                                            <div className="text-[8px] bg-purple-600/90 px-1 py-0.5 rounded text-white font-mono">COLOR</div>
+                                        </div>
+                                    )}
+                                    {file.materialType === 'image' && (
+                                        <div className="absolute top-1 right-1 text-[8px] bg-blue-600/90 px-1.5 py-0.5 rounded text-white font-mono">IMG</div>
+                                    )}
                                     <div className="w-full h-full checkerboard flex items-center justify-center p-2">
                                         {isProcessing && selectedId === file.id ? (
-                                            <div className="w-4 h-4 border-2 border-green-500 rounded-full animate-spin border-t-transparent"></div> 
+                                            <div className="w-4 h-4 border-2 border-green-500 rounded-full animate-spin border-t-transparent"></div>
                                         ) : (
                                             <img src={file.processedUrl} className="w-full h-full object-contain drop-shadow-md" />
                                         )}

@@ -262,6 +262,31 @@ function App() {
         });
     }, []);
 
+    // ★★★ 新增：切换到图像材质（保持数据） ★★★
+    const switchToImageMaterial = useCallback(async (fileObj) => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512; canvas.height = 512;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                const finalCanvas = removeBackground(canvas, fileObj.tolerance);
+
+                finalCanvas.toBlob(blob => {
+                    resolve({
+                        ...fileObj,
+                        materialType: 'image',
+                        // 保留 color 数据以便切换回来
+                        processedUrl: URL.createObjectURL(blob),
+                        blob: blob
+                    });
+                }, 'image/png');
+            };
+            img.src = fileObj.originalUrl;
+        });
+    }, []);
+
     // ★★★ 新增：按钮点击处理函数 ★★★
     const handleImageMaterialClick = useCallback(() => {
         console.log('=== handleImageMaterialClick called ===');
@@ -287,7 +312,7 @@ function App() {
             .catch(error => {
                 console.error('❌ Error:', error);
             });
-    }, [selectedFile, selectedId]);
+    }, [selectedFile, selectedId, switchToImageMaterial]);
 
     const handleSolidColorClick = useCallback(() => {
         console.log('=== handleSolidColorClick called ===');
@@ -315,32 +340,7 @@ function App() {
             .catch(error => {
                 console.error('❌ Error:', error);
             });
-    }, [selectedFile, selectedId, editingColor]);
-
-    // ★★★ 新增：切换到图像材质（保持数据） ★★★
-    const switchToImageMaterial = useCallback(async (fileObj) => {
-        return new Promise((resolve) => {
-            const img = new Image();
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = 512; canvas.height = 512;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0);
-                const finalCanvas = removeBackground(canvas, fileObj.tolerance);
-
-                finalCanvas.toBlob(blob => {
-                    resolve({
-                        ...fileObj,
-                        materialType: 'image',
-                        // 保留 color 数据以便切换回来
-                        processedUrl: URL.createObjectURL(blob),
-                        blob: blob
-                    });
-                }, 'image/png');
-            };
-            img.src = fileObj.originalUrl;
-        });
-    }, []);
+    }, [selectedFile, selectedId, editingColor, generateSolidColorMaterial]);
 
     const downloadZip = async () => {
         if (files.length === 0) return;

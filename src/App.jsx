@@ -514,21 +514,33 @@ function App() {
                                 </span>
                                 <div className="grid grid-cols-2 gap-2">
                                     <button
-                                        onClick={async (e) => {
+                                        type="button"
+                                        onClick={(e) => {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            console.log('Image material button clicked', selectedFile);
-                                            try {
-                                                if (!selectedFile) {
-                                                    console.error('No selected file');
-                                                    return;
-                                                }
-                                                const updated = await switchToImageMaterial(selectedFile);
-                                                console.log('Updated file:', updated);
-                                                setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
-                                            } catch (error) {
-                                                console.error('Error switching to image material:', error);
+                                            console.log('=== Image button clicked ===');
+                                            console.log('selectedFile:', selectedFile);
+                                            console.log('selectedId:', selectedId);
+
+                                            if (!selectedFile) {
+                                                console.error('❌ No selected file');
+                                                return;
                                             }
+
+                                            if (selectedFile.materialType === 'image') {
+                                                console.log('ℹ️ Already in image mode');
+                                                return;
+                                            }
+
+                                            console.log('🔄 Switching to image material...');
+                                            switchToImageMaterial(selectedFile)
+                                                .then(updated => {
+                                                    console.log('✅ Updated:', updated);
+                                                    setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                                })
+                                                .catch(error => {
+                                                    console.error('❌ Error:', error);
+                                                });
                                         }}
                                         className={`px-4 py-3 rounded-xl text-sm font-medium transition border ${
                                             selectedFile?.materialType === 'image'
@@ -539,24 +551,35 @@ function App() {
                                         📷 图像
                                     </button>
                                     <button
-                                        onClick={async (e) => {
+                                        type="button"
+                                        onClick={(e) => {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            console.log('Solid color button clicked', selectedFile);
-                                            try {
-                                                if (!selectedFile) {
-                                                    console.error('No selected file');
-                                                    return;
-                                                }
-                                                const color = selectedFile.color || editingColor || generateRandomColor();
-                                                console.log('Using color:', color);
-                                                const updated = await generateSolidColorMaterial(selectedFile, color);
-                                                console.log('Updated file:', updated);
-                                                setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
-                                                setEditingColor(color);
-                                            } catch (error) {
-                                                console.error('Error switching to solid color:', error);
+                                            console.log('=== Color button clicked ===');
+                                            console.log('selectedFile:', selectedFile);
+                                            console.log('selectedId:', selectedId);
+
+                                            if (!selectedFile) {
+                                                console.error('❌ No selected file');
+                                                return;
                                             }
+
+                                            if (selectedFile.materialType === 'solid-color') {
+                                                console.log('ℹ️ Already in solid-color mode');
+                                                return;
+                                            }
+
+                                            const color = selectedFile.color || editingColor || generateRandomColor();
+                                            console.log('🔄 Switching to solid color:', color);
+                                            generateSolidColorMaterial(selectedFile, color)
+                                                .then(updated => {
+                                                    console.log('✅ Updated:', updated);
+                                                    setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                                    setEditingColor(color);
+                                                })
+                                                .catch(error => {
+                                                    console.error('❌ Error:', error);
+                                                });
                                         }}
                                         className={`px-4 py-3 rounded-xl text-sm font-medium transition border ${
                                             selectedFile?.materialType === 'solid-color'

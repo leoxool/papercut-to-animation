@@ -1,0 +1,1650 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>paperCut-ART | Digital Ecology</title>
+    
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 引入 React 和 ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- 引入 JSZip 用于打包下载 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    
+    <!-- 引入 Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- 引入后期处理相关库 -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/BokehShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/BokehPass.js"></script>
+
+    <style>
+        body { background-color: #0f172a; color: #f3f4f6; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; touch-action: manipulation; overflow: hidden; }
+        
+        .checkerboard {
+            background-image: linear-gradient(45deg, #e5e7eb 25%, transparent 25%), 
+                              linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), 
+                              linear-gradient(45deg, transparent 75%, #e5e7eb 75%), 
+                              linear-gradient(-45deg, transparent 75%, #e5e7eb 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+            background-color: #ffffff;
+        }
+
+        .watercolor-paper {
+            background-color: #fdfbf7;
+            background-image: url("https://www.transparenttextures.com/patterns/watercolor.png");
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.1);
+        }
+
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .no-select { user-select: none; -webkit-user-select: none; }
+        
+        .touch-btn:active { transform: scale(0.92); background-color: rgba(255, 255, 255, 1); }
+        .touch-btn { transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+
+        @keyframes pulse-slow {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(0.98); }
+        }
+        .animate-pulse-slow {
+            animation: pulse-slow 3s ease-in-out infinite;
+        }
+        
+        /* --- 修复滑杆交互的核心 CSS --- */
+        input[type=range] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: #ffffff;
+            border: 2px solid #06b6d4;
+            cursor: pointer;
+            margin-top: -8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            position: relative;
+            z-index: 50;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: transparent;
+            border-radius: 2px;
+        }
+
+        input[type=range]::-moz-range-thumb {
+            height: 20px;
+            width: 20px;
+            border: 2px solid #06b6d4;
+            border-radius: 50%;
+            background: #ffffff;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        input[type=range]:focus {
+            outline: none;
+        }
+    </style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel">
+
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+// MV 镜头时间表
+const MV_TIMELINE = [
+    0.00,   1.45,   3.11,   4.43,   6.15, 
+    7.43,   9.17,  10.51,  12.23,  13.10,
+   17.35,  20.46,  25.28,  29.58,  33.07,
+   37.43,  38.12,  38.36,  39.02,  40.44,
+   41.30,  42.14,  43.52,  49.55,  50.21,
+   50.47,  51.11,  53.01,  53.57,  58.31,
+   64.34,  70.42,  76.01,  90.06,  102.23,
+  106.51, 109.58, 114.40, 119.05, 122.13,
+  126.53, 127.17, 127.38, 128.00, 129.57,
+  132.55, 139.14, 139.35, 139.56, 140.20,
+  142.16, 142.59, 147.44, 153.55, 159.58,
+  166.08, 169.12, 172.21, 173.09, 177.39,
+  183.45, 189.51, 194.46, 200.48, 203.44,
+  209.59, 213.40, 218.48
+];
+
+const LoadingScreen = ({ progress }) => {
+    return (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-slate-900 text-white">
+            <div className="text-center relative">
+                <div className="absolute -inset-10 bg-blue-500/20 blur-3xl rounded-full opacity-50 animate-pulse-slow"></div>
+                <h1 className="text-5xl font-serif tracking-[0.2em] mb-4 text-gray-100 relative z-10">paperCut-ART</h1>
+                <p className="text-xs text-blue-300 font-mono tracking-widest mb-16 opacity-80">DIGITAL ECOLOGY SYSTEM v3.2</p>
+                
+                <div className="w-80 h-[2px] bg-slate-800 rounded-full overflow-hidden mx-auto relative">
+                    <div 
+                        className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-600 to-cyan-400 shadow-[0_0_15px_rgba(59,130,246,0.8)] transition-all duration-300 ease-out" 
+                        style={{ width: `${progress}%` }}
+                    ></div>
+                </div>
+                
+                <div className="mt-4 flex justify-between items-center w-80 mx-auto text-[10px] text-slate-500 font-mono">
+                    <span>INITIALIZING</span>
+                    <span>{progress}%</span>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// 3D 场景组件
+const ChaosGallery = ({ files, onBack, audioUrl }) => {
+    const mountRef = useRef(null);
+    const sceneRef = useRef(null);
+    const cameraRef = useRef(null);
+    const rendererRef = useRef(null);
+    const composerRef = useRef(null);
+    const bokehPassRef = useRef(null);
+    const keyLightRef = useRef(null); 
+    const wallRef = useRef(null); 
+    const floorRef = useRef(null); 
+    const audioRef = useRef(null); 
+    
+    const butterfliesRef = useRef([]); 
+    
+    const [flightModeState, setFlightModeState] = useState('grid');
+    const flightMode = useRef('grid'); 
+    
+    const [focusModeState, setFocusModeState] = useState(false);
+    const focusMode = useRef(false);   
+    
+    const focusIndex = useRef(0);     
+    
+    const currentLookAt = useRef(new THREE.Vector3(0, 0, 0)); 
+    
+    const mvState = useRef({
+        isPlaying: false,
+        currentShotIndex: -1,
+        currentBugIndex: -1, 
+        lastShotIndex: -1,
+        startTime: 0
+    });
+    
+    const [isFullscreen, setIsFullscreen] = useState(false);
+
+    const raycaster = useRef(new THREE.Raycaster());
+    const mouse = useRef(new THREE.Vector2());
+    const draggedObjectRef = useRef(null);
+    const planeRef = useRef(null); 
+    const dummyObj = useRef(new THREE.Object3D()); 
+    const optimalGridDistance = useRef(150);
+    
+    const [isTouchDevice, setIsTouchDevice] = useState(false);
+    const touchStartRef = useRef({ x: 0, y: 0, time: 0 });
+
+    const cameraState = useRef({
+        isDragging: false,
+        lastX: 0,
+        lastY: 0,
+        theta: 0, 
+        phi: Math.PI / 2 - 0.1, 
+        radius: 150 
+    });
+
+    // 模式切换逻辑
+    const switchMode = (mode) => {
+        flightMode.current = mode;
+        setFlightModeState(mode);
+
+        if (mode === 'mv') {
+            if (audioRef.current) {
+                audioRef.current.currentTime = 0;
+                if (audioUrl) {
+                    audioRef.current.play().catch(e => console.log("Audio play failed:", e));
+                } else {
+                    alert("请先上传音乐 (MP3) 以启动 MV 模式");
+                    switchMode('free'); // 回退
+                    return;
+                }
+            }
+            mvState.current.isPlaying = true;
+            mvState.current.currentShotIndex = -1;
+            mvState.current.lastShotIndex = -1;
+            mvState.current.startTime = Date.now() / 1000;
+            setFocusModeState(false);
+            focusMode.current = false;
+        } else {
+            if (audioRef.current) {
+                audioRef.current.pause();
+            }
+            mvState.current.isPlaying = false;
+        }
+
+        // 摄像机初始位置重置
+        if (mode === 'free') {
+            focusMode.current = false;
+            setFocusModeState(false);
+            cameraState.current.theta = 0;
+            cameraState.current.phi = Math.PI / 2 - 0.2; 
+            cameraState.current.radius = 130; 
+        } else if (mode === 'grid') {
+            focusMode.current = false;
+            setFocusModeState(false);
+            cameraState.current.theta = 0;
+            cameraState.current.phi = Math.PI / 2 - 0.1;
+            cameraState.current.radius = optimalGridDistance.current;
+            // 重置蝴蝶旋转
+            butterfliesRef.current.forEach(b => {
+                b.manualRotation.set(0, 0, 0);
+            });
+        } else if (mode === 'closeup') {
+            focusMode.current = false;
+            setFocusModeState(false);
+        }
+    };
+
+    const switchFocus = (direction) => {
+        if (!focusMode.current || butterfliesRef.current.length === 0) return;
+        
+        if (direction === 'next') {
+            focusIndex.current = (focusIndex.current + 1) % butterfliesRef.current.length;
+        } else {
+            focusIndex.current = (focusIndex.current - 1 + butterfliesRef.current.length) % butterfliesRef.current.length;
+        }
+        
+        if (butterfliesRef.current[focusIndex.current]) {
+            butterfliesRef.current[focusIndex.current].manualRotation.set(0, 0, 0);
+        }
+    };
+
+    useEffect(() => {
+        const checkTouch = () => {
+            return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        };
+        setIsTouchDevice(checkTouch());
+        
+        const handleFullscreenChange = () => {
+            setIsFullscreen(!!document.fullscreenElement);
+        };
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
+
+    const toggleFullscreen = () => {
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(err => console.error(err));
+        } else {
+            if (document.exitFullscreen) document.exitFullscreen();
+        }
+    };
+
+    useEffect(() => {
+        const handleKeyMode = (e) => {
+            if (e.key === '1') switchMode('free');
+            if (e.key === '2') switchMode('grid');
+            if (e.key === '3') switchMode('closeup');
+            if (e.key === '4') switchMode('mv');
+
+            if (focusMode.current && butterfliesRef.current.length > 0) {
+                if (e.key === 'ArrowRight' || e.key === 'd') switchFocus('next');
+                if (e.key === 'ArrowLeft' || e.key === 'a') switchFocus('prev');
+            }
+        };
+        window.addEventListener('keydown', handleKeyMode);
+        return () => window.removeEventListener('keydown', handleKeyMode);
+    }, [audioUrl]); 
+
+    // Three.js 初始化与渲染循环
+    useEffect(() => {
+        if (!mountRef.current) return;
+        
+        if (rendererRef.current) {
+            rendererRef.current.setAnimationLoop(null);
+            rendererRef.current.dispose();
+        }
+        while (mountRef.current.firstChild) {
+            mountRef.current.removeChild(mountRef.current.firstChild);
+        }
+        butterfliesRef.current = []; 
+        let isMounted = true; 
+
+        const width = mountRef.current.clientWidth || window.innerWidth;
+        const height = mountRef.current.clientHeight || window.innerHeight;
+
+        const scene = new THREE.Scene();
+        const BG_COLOR = 0xF2F0E6; 
+        scene.background = new THREE.Color(BG_COLOR);
+        scene.fog = new THREE.Fog(BG_COLOR, 150, 700); 
+        sceneRef.current = scene;
+
+        const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1500);
+        cameraRef.current = camera;
+        updateCameraPosition();
+
+        const renderer = new THREE.WebGLRenderer({ alpha: false, antialias: true, powerPreference: "high-performance" });
+        renderer.setSize(width, height);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); 
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
+        renderer.outputEncoding = THREE.sRGBEncoding; 
+        renderer.toneMapping = THREE.ACESFilmicToneMapping; 
+        renderer.toneMappingExposure = 1.1;
+        mountRef.current.appendChild(renderer.domElement);
+        rendererRef.current = renderer;
+
+        // 后期处理：景深效果
+        const composer = new THREE.EffectComposer(renderer);
+        const renderPass = new THREE.RenderPass(scene, camera);
+        composer.addPass(renderPass);
+
+        const bokehPass = new THREE.BokehPass(scene, camera, {
+            focus: 1.0,
+            aperture: 0.0001,
+            maxblur: 0.005,
+            width: width,
+            height: height
+        });
+        composer.addPass(bokehPass);
+        composerRef.current = composer;
+        bokehPassRef.current = bokehPass;
+
+        // 灯光设置
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); 
+        scene.add(ambientLight);
+
+        const spotLight = new THREE.SpotLight(0xfff5e6, 1.5); 
+        spotLight.position.set(50, 200, 100); 
+        spotLight.angle = Math.PI / 4;
+        spotLight.penumbra = 0.5; 
+        spotLight.decay = 2;
+        spotLight.distance = 800;
+        spotLight.castShadow = true;
+        spotLight.shadow.mapSize.width = 2048;
+        spotLight.shadow.mapSize.height = 2048;
+        spotLight.shadow.camera.near = 10;
+        spotLight.shadow.camera.far = 800;
+        spotLight.shadow.bias = -0.0001;
+        spotLight.shadow.radius = 4; 
+        scene.add(spotLight);
+        keyLightRef.current = spotLight;
+
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.4);
+        scene.add(hemiLight);
+
+        // 背景墙与地板
+        const wallGeo = new THREE.PlaneGeometry(6000, 6000);
+        const wallMat = new THREE.ShadowMaterial({ 
+            color: 0x5a4d3b, 
+            opacity: 0.0 
+        });
+        const wall = new THREE.Mesh(wallGeo, wallMat.clone());
+        wall.position.z = -5; 
+        wall.receiveShadow = true; 
+        scene.add(wall);
+        wallRef.current = wall; 
+
+        const floorGeo = new THREE.PlaneGeometry(6000, 6000);
+        const floor = new THREE.Mesh(floorGeo, wallMat.clone());
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.y = -40; 
+        floor.receiveShadow = true;
+        scene.add(floor);
+        floorRef.current = floor;
+
+        // 交互用平面
+        const planeGeo = new THREE.PlaneGeometry(3000, 3000);
+        const planeMat = new THREE.MeshBasicMaterial({ visible: false });
+        const dragPlane = new THREE.Mesh(planeGeo, planeMat);
+        scene.add(dragPlane);
+        planeRef.current = dragPlane;
+
+        // 响应窗口大小
+        const resizeObserver = new ResizeObserver(entries => {
+            if (!isMounted || !renderer || !camera || !composer) return;
+            for (let entry of entries) {
+                const { width, height } = entry.contentRect;
+                if (width === 0 || height === 0) return;
+                camera.aspect = width / height;
+                camera.updateProjectionMatrix();
+                renderer.setSize(width, height);
+                composer.setSize(width, height);
+            }
+        });
+        resizeObserver.observe(mountRef.current);
+
+        const loader = new THREE.TextureLoader();
+        
+        // 计算网格布局
+        const total = files.length;
+        const screenAspect = width / height;
+        let cols = Math.round(Math.sqrt(total * screenAspect));
+        cols = Math.max(1, cols); 
+        const totalRows = Math.ceil(total / cols); 
+
+        const spacingX = 14; 
+        const spacingY = 14; 
+        
+        const gridWidth = (cols - 1) * spacingX;
+        const gridHeight = (totalRows - 1) * spacingY;
+        const gridOffsetX = gridWidth / 2;
+        const gridOffsetY = gridHeight / 2;
+
+        const fovRad = (camera.fov * Math.PI) / 180;
+        const distV = (gridHeight / 2 + spacingY * 0.6) / Math.tan(fovRad / 2);
+        const aspectH = width / height;
+        const distH = (gridWidth / 2 + spacingX * 0.6) / (Math.tan(fovRad / 2) * aspectH);
+        
+        optimalGridDistance.current = Math.max(distV, distH) * 1.05 + 20;
+        cameraState.current.radius = optimalGridDistance.current;
+        updateCameraPosition();
+
+        // 批量创建蝴蝶
+        files.forEach((file, index) => {
+            loader.load(file.processedUrl, (texture) => {
+                if (!isMounted) return;
+                texture.encoding = THREE.sRGBEncoding;
+                texture.minFilter = THREE.LinearFilter; 
+
+                const butterflyGroup = new THREE.Group();
+                const bodyGroup = new THREE.Group();
+                
+                // 核心修正：X轴 -90度，确保局部 Z轴=前(头), Y轴=上(背)
+                bodyGroup.rotation.set(Math.PI / 2, Math.PI, 0); 
+                
+                butterflyGroup.add(bodyGroup);
+
+                // 材质
+                const material = new THREE.MeshStandardMaterial({
+                    map: texture,
+                    side: THREE.DoubleSide,
+                    transparent: true, 
+                    opacity: 1.0,       
+                    alphaTest: 0.1, 
+                    roughness: 0.8, 
+                    metalness: 0.0, 
+                    emissive: 0x222222, 
+                    emissiveIntensity: 0.1
+                });
+
+                const customDepthMaterial = new THREE.MeshDepthMaterial({
+                    depthPacking: THREE.RGBADepthPacking,
+                    map: texture,
+                    alphaTest: 0.5
+                });
+
+                const wingGeo = new THREE.PlaneGeometry(5, 10, 2, 2); 
+                const uvsL = wingGeo.attributes.uv;
+                for (let i = 0; i < uvsL.count; i++) {
+                    uvsL.setX(i, uvsL.getX(i) * 0.5);
+                }
+                wingGeo.translate(-2.5, 0, 0); 
+                const leftWing = new THREE.Mesh(wingGeo, material);
+                leftWing.castShadow = true;
+                leftWing.receiveShadow = true; 
+                leftWing.customDepthMaterial = customDepthMaterial; 
+                
+                const wingGeoR = new THREE.PlaneGeometry(5, 10, 2, 2);
+                const uvsR = wingGeoR.attributes.uv;
+                for (let i = 0; i < uvsR.count; i++) {
+                    uvsR.setX(i, uvsR.getX(i) * 0.5 + 0.5);
+                }
+                wingGeoR.translate(2.5, 0, 0);
+                const rightWing = new THREE.Mesh(wingGeoR, material);
+                rightWing.castShadow = true;
+                rightWing.receiveShadow = true;
+                rightWing.customDepthMaterial = customDepthMaterial; 
+
+                bodyGroup.add(leftWing);
+                bodyGroup.add(rightWing);
+
+                // 网格位置
+                const col = index % cols;
+                const row = Math.floor(index / cols);
+                const gridX = (col * spacingX) - gridOffsetX;
+                const gridY = (totalRows - 1 - row) * spacingY - gridOffsetY; 
+                const gridZ = 0;
+                const gridPos = new THREE.Vector3(gridX, gridY, gridZ);
+
+                // 随机位置
+                const freeX = (Math.random() - 0.5) * 80;
+                const freeY = (Math.random() - 0.5) * 60;
+                const freeZ = (Math.random() - 0.5) * 60;
+                const freePos = new THREE.Vector3(freeX, freeY, freeZ);
+
+                butterflyGroup.position.copy(gridPos);
+                const scale = 0.8; 
+                butterflyGroup.scale.set(scale, scale, scale);
+
+                leftWing.userData = { parentIndex: index };
+                rightWing.userData = { parentIndex: index };
+
+                scene.add(butterflyGroup);
+
+                butterfliesRef.current.push({
+                    group: butterflyGroup,
+                    body: bodyGroup,
+                    leftWing: leftWing,
+                    rightWing: rightWing,
+                    gridPos: gridPos,       
+                    basePos: freePos,       
+                    lastPos: gridPos.clone(),
+                    noiseOffset: Math.random() * 1000,
+                    freqX: 0.2 + Math.random() * 0.4, 
+                    freqY: 0.2 + Math.random() * 0.4,
+                    freqZ: 0.2 + Math.random() * 0.4,
+                    baseSpeed: 0.5 + Math.random() * 1.5,
+                    flapPhase: Math.random() * Math.PI * 2,
+                    wingAmp: 0.8 + Math.random() * 0.4,
+                    speedToFlapRatio: 0.2 + Math.random() * 0.4,
+                    manualRotation: new THREE.Euler(0, 0, 0)
+                });
+            });
+        });
+
+        // 噪声运动函数
+        const getFreePosition = (t, b) => {
+            const variableTime = t * b.baseSpeed + Math.sin(t * 0.5 + b.noiseOffset) * 2.0;
+            const noiseX = Math.sin(variableTime * b.freqX + b.noiseOffset) * 20 + Math.cos(variableTime * 0.5) * 10;
+            const noiseY = Math.cos(variableTime * b.freqY + b.noiseOffset) * 15 + Math.sin(variableTime * 0.3) * 8;
+            const noiseZ = Math.sin(variableTime * b.freqZ + b.noiseOffset) * 15 + Math.cos(variableTime * 0.7) * 8;
+            return new THREE.Vector3(b.basePos.x + noiseX, b.basePos.y + noiseY, b.basePos.z + noiseZ);
+        };
+
+        const clock = new THREE.Clock();
+        
+        // 渲染循环
+        renderer.setAnimationLoop(() => {
+            const t = clock.getElapsedTime(); 
+            const now = Date.now() / 1000;
+            const mode = flightMode.current;
+
+            // --- 场景环境动态 ---
+            if (wallRef.current) {
+                const targetWallZ = (mode === 'grid') ? -5 : -500;
+                wallRef.current.position.z = THREE.MathUtils.lerp(wallRef.current.position.z, targetWallZ, 0.1);
+                
+                const dist = Math.abs(wallRef.current.position.z);
+                const visibility = 1.0 - THREE.MathUtils.smoothstep(dist, 5, 20);
+                wallRef.current.material.opacity = 0.25 * visibility; 
+
+                if (keyLightRef.current && mode === 'grid') {
+                     const blurFactor = THREE.MathUtils.mapLinear(dist, 5, 20, 0, 1);
+                     const clampedBlur = Math.max(0, Math.min(1, blurFactor));
+                     keyLightRef.current.shadow.radius = THREE.MathUtils.lerp(4, 20, clampedBlur);
+                }
+            }
+
+            if (floorRef.current) {
+                 const targetFloorOpacity = (mode === 'grid') ? 0.0 : 0.15;
+                 floorRef.current.material.opacity = THREE.MathUtils.lerp(floorRef.current.material.opacity, targetFloorOpacity, 0.05);
+            }
+
+            // --- 摄像机与焦点逻辑 ---
+            let targetCamPos = new THREE.Vector3();
+            let targetLookAt = new THREE.Vector3();
+            let lerpSpeed = 0.05; 
+            let targetFocusDistance = 150; 
+            let targetAperture = 0.0001; 
+            
+            let currentTargetIdx = -1;
+
+            if (mode === 'closeup' && butterfliesRef.current.length > 0) {
+                const duration = 8.0; 
+                const transition = 3.0; 
+                const focusTime = duration - transition; 
+                const totalBugs = butterfliesRef.current.length;
+                const cycleIndex = Math.floor(t / duration);
+                const localTime = t % duration;
+                
+                const curIdx = cycleIndex % totalBugs;
+                currentTargetIdx = curIdx; 
+                
+                const nextIdx = (cycleIndex + 1) % totalBugs;
+                const curBug = butterfliesRef.current[curIdx];
+                const nextBug = butterfliesRef.current[nextIdx];
+
+                const getOrbitPos = (bug, time) => {
+                    const bPos = bug.group.position;
+                    const r = 8; 
+                    const theta = time * 0.3; 
+                    const h = bPos.y + 2 + Math.sin(time * 0.4) * 3;
+                    return new THREE.Vector3(bPos.x + Math.cos(theta) * r, h, bPos.z + Math.sin(theta) * r);
+                };
+
+                if (curBug && nextBug) {
+                    if (localTime < focusTime) {
+                        const dest = getOrbitPos(curBug, t);
+                        targetCamPos.copy(dest);
+                        targetLookAt.copy(curBug.group.position);
+                        lerpSpeed = 0.04; 
+                        const dist = camera.position.distanceTo(curBug.group.position);
+                        targetFocusDistance = dist;
+                        targetAperture = 0.001; 
+                    } else {
+                        const transT = localTime - focusTime;
+                        const alpha = transT / transition;
+                        const ease = alpha * alpha * (3 - 2 * alpha); // Smoothstep
+                        const p1 = getOrbitPos(curBug, t);
+                        const p2 = getOrbitPos(nextBug, t);
+                        targetCamPos.lerpVectors(p1, p2, ease);
+                        targetCamPos.y += Math.sin(alpha * Math.PI) * 10;
+                        const l1 = curBug.group.position;
+                        const l2 = nextBug.group.position;
+                        targetLookAt.lerpVectors(l1, l2, ease);
+                        lerpSpeed = 0.05; 
+                        
+                        const dist1 = p1.distanceTo(l1);
+                        const dist2 = p2.distanceTo(l2);
+                        targetFocusDistance = THREE.MathUtils.lerp(dist1, dist2, ease);
+                        targetAperture = 0.001; 
+                    }
+                }
+            } else if (mode === 'mv' && butterfliesRef.current.length > 0 && audioRef.current) {
+                const currentTime = audioRef.current.currentTime;
+                
+                // 查找当前镜头
+                let shotIndex = -1;
+                for (let i = 0; i < MV_TIMELINE.length; i++) {
+                    if (currentTime >= MV_TIMELINE[i]) {
+                        shotIndex = i;
+                    } else {
+                        break;
+                    }
+                }
+
+                if (shotIndex !== mvState.current.lastShotIndex && shotIndex >= 0 && shotIndex < MV_TIMELINE.length) {
+                    mvState.current.lastShotIndex = shotIndex;
+                    let nextBugIndex;
+                    let attempts = 0;
+                    do {
+                        nextBugIndex = Math.floor(Math.random() * butterfliesRef.current.length);
+                        attempts++;
+                    } while (nextBugIndex === mvState.current.currentBugIndex && butterfliesRef.current.length > 1 && attempts < 5);
+                    mvState.current.currentBugIndex = nextBugIndex;
+                }
+
+                const currentBug = butterfliesRef.current[mvState.current.currentBugIndex];
+                
+                if (shotIndex === -1) {
+                     const camR = 140;
+                     const camSpeed = 0.15;
+                     targetCamPos.set(
+                         Math.sin(t * camSpeed) * camR,
+                         60,
+                         Math.cos(t * camSpeed) * camR
+                     );
+                     targetLookAt.set(0, 0, 0);
+                     targetFocusDistance = 140;
+                     targetAperture = 0.0;
+                     lerpSpeed = 0.03;
+                     currentTargetIdx = -1;
+                } else if (currentBug) {
+                    currentTargetIdx = mvState.current.currentBugIndex;
+                    const bPos = currentBug.group.position;
+                    
+                    const r = 10;
+                    const orbitSpeed = 0.8;
+                    const shotStartTime = MV_TIMELINE[shotIndex];
+                    const localShotTime = currentTime - shotStartTime;
+                    
+                    const angle = localShotTime * orbitSpeed; 
+                    
+                    targetCamPos.set(
+                        bPos.x + Math.cos(angle) * r,
+                        bPos.y + 3 + Math.sin(localShotTime * 0.5) * 2,
+                        bPos.z + Math.sin(angle) * r
+                    );
+                    targetLookAt.copy(bPos);
+                    targetFocusDistance = r;
+                    targetAperture = 0.001; 
+                    
+                    if (Math.abs(currentTime - shotStartTime) < 0.2) {
+                         lerpSpeed = 0.8; 
+                    } else {
+                         lerpSpeed = 0.08;
+                    }
+                }
+
+            } else if (focusMode.current && butterfliesRef.current.length > 0) {
+                const targetB = butterfliesRef.current[focusIndex.current];
+                if (targetB) {
+                    const bPos = targetB.group.position;
+                    targetCamPos.set(bPos.x, bPos.y, bPos.z + 15); 
+                    targetLookAt.copy(bPos);
+                    const dist = camera.position.distanceTo(bPos);
+                    targetFocusDistance = dist;
+                    targetAperture = 0.0005; 
+                }
+            } else {
+                const { radius, theta, phi } = cameraState.current;
+                const x = radius * Math.sin(phi) * Math.sin(theta);
+                const y = radius * Math.cos(phi);
+                const z = radius * Math.sin(phi) * Math.cos(theta);
+                targetCamPos.set(x, y, z);
+                targetLookAt.set(0, 0, 0);
+                
+                if (mode === 'free') {
+                    targetFocusDistance = 200; 
+                    targetAperture = 0.0; 
+                } else {
+                    targetFocusDistance = radius;
+                    targetAperture = 0.0002; 
+                }
+            }
+
+            camera.position.lerp(targetCamPos, lerpSpeed);
+            currentLookAt.current.lerp(targetLookAt, lerpSpeed);
+            camera.lookAt(currentLookAt.current);
+
+            if (bokehPassRef.current) {
+                const currentFocus = bokehPassRef.current.uniforms['focus'].value;
+                const currentAperture = bokehPassRef.current.uniforms['aperture'].value;
+                bokehPassRef.current.uniforms['focus'].value = THREE.MathUtils.lerp(currentFocus, targetFocusDistance, 0.2);
+                bokehPassRef.current.uniforms['aperture'].value = THREE.MathUtils.lerp(currentAperture, targetAperture, 0.05);
+            }
+
+            const currentCamPos = camera.position;
+
+            // --- 蝴蝶逻辑更新 ---
+            butterfliesRef.current.forEach((b, idx) => {
+                const isDragging = draggedObjectRef.current === b.body || draggedObjectRef.current === b.group;
+                const isFocused = focusMode.current && focusIndex.current === idx;
+
+                if (!isDragging) {
+                    let moveSpeed = 0;
+                    if (mode === 'mv') {
+                         // MV 模式：头部朝上，尾部朝下，身体前倾
+                         const R = 60; 
+                         const speed = 0.4;
+                         const angleStep = (Math.PI * 2) / butterfliesRef.current.length;
+                         const currentAngle = angleStep * idx + t * speed;
+                         
+                         const targetPos = new THREE.Vector3(
+                             Math.cos(currentAngle) * R,
+                             Math.sin(t * 0.4 + idx) * 15,
+                             Math.sin(currentAngle) * R
+                         );
+                         
+                         b.group.position.lerp(targetPos, 0.05);
+                         
+                         // 让 dummyObj 沿轨迹切线朝向
+                         dummyObj.current.position.copy(b.group.position);
+                         const tangentTarget = new THREE.Vector3(
+                             Math.cos(currentAngle + 0.1) * R,
+                             targetPos.y,
+                             Math.sin(currentAngle + 0.1) * R
+                         );
+                         dummyObj.current.lookAt(tangentTarget);
+                         
+                         // MV 特有姿态: 头部向上，身体前倾
+                         dummyObj.current.rotateX(-Math.PI / 4); 
+                         
+                         b.group.quaternion.slerp(dummyObj.current.quaternion, 0.1);
+                         
+                         const flap = Math.sin(t * 15 + idx) * 0.8;
+                         b.leftWing.rotation.y = flap;
+                         b.rightWing.rotation.y = -flap;
+
+                    } else if ((mode === 'free' || mode === 'closeup') && !isFocused) {
+                        // 自由飞行：头部朝前
+                        const targetPos = getFreePosition(t, b);
+                        const futurePos = getFreePosition(t + 0.5, b);
+                        b.group.position.lerp(targetPos, 0.04); 
+                        const velocity = b.group.position.clone().sub(b.lastPos);
+                        moveSpeed = velocity.length(); 
+                        b.lastPos.copy(b.group.position);
+                        
+                        dummyObj.current.position.copy(b.group.position);
+                        
+                        const lookTarget = futurePos.clone();
+                        if (lookTarget.y < b.group.position.y) {
+                            lookTarget.y = b.group.position.y; 
+                        }
+                        dummyObj.current.lookAt(lookTarget);
+
+                        const banking = (futurePos.x - targetPos.x) * -0.05; 
+                        dummyObj.current.rotateZ(banking);
+                        b.group.quaternion.slerp(dummyObj.current.quaternion, 0.08);
+                    } else {
+                        // Grid 模式复位：头朝上，背朝镜头 + Z轴 180度
+                        b.group.position.lerp(b.gridPos, 0.05);
+                        moveSpeed = 0;
+                        if (isFocused) {
+                            // 特写时允许手动旋转 + Grid Mode Z 180 Flip
+                            dummyObj.current.rotation.set(
+                                Math.PI / 2 + b.manualRotation.x, 
+                                Math.PI + b.manualRotation.y, 
+                                Math.PI // Z 180
+                            );
+                            b.group.quaternion.slerp(dummyObj.current.quaternion, 0.1);
+                        } else {
+                            // Grid 闲置摇摆 + Grid Mode Z 180 Flip
+                            const swayX = Math.sin(t + b.noiseOffset) * 0.1;
+                            const swayY = Math.cos(t * 0.8 + b.noiseOffset) * 0.1;
+                            dummyObj.current.position.copy(b.group.position);
+                            
+                            dummyObj.current.rotation.set(
+                                Math.PI / 2 + swayX, 
+                                Math.PI + swayY, 
+                                Math.PI // Z 180
+                            ); 
+                            b.group.quaternion.slerp(dummyObj.current.quaternion, 0.05);
+                        }
+                    }
+
+                    // 翅膀扇动逻辑
+                    if ((mode === 'free' || mode === 'closeup') && !isFocused && mode !== 'mv') {
+                        const flapInc = 0.30 + moveSpeed * b.speedToFlapRatio;
+                        b.flapPhase = (b.flapPhase + flapInc) % (Math.PI * 2);
+                        const dynamicAmp = THREE.MathUtils.lerp(0.3, b.wingAmp, Math.min(moveSpeed * 2.0, 1));
+                        const flap = Math.sin(b.flapPhase) * dynamicAmp;
+                        const finalFlap = THREE.MathUtils.mapLinear(flap, -1, 1, -0.2, 1.2);
+                        b.leftWing.rotation.y = finalFlap;
+                        b.rightWing.rotation.y = -finalFlap;
+                    } else if (isFocused && mode !== 'mv') {
+                        // 标本状态静止
+                        b.leftWing.rotation.y = THREE.MathUtils.lerp(b.leftWing.rotation.y, 0, 0.1);
+                        b.rightWing.rotation.y = THREE.MathUtils.lerp(b.rightWing.rotation.y, 0, 0.1);
+                    } else if (mode === 'grid') {
+                        // Grid 状态静止
+                        b.leftWing.rotation.y = THREE.MathUtils.lerp(b.leftWing.rotation.y, 0.1, 0.1);
+                        b.rightWing.rotation.y = THREE.MathUtils.lerp(b.rightWing.rotation.y, -0.1, 0.1);
+                    }
+                } else {
+                    // 拖拽时疯狂扇动
+                    b.flapPhase += 0.5;
+                    const flap = Math.sin(b.flapPhase) * 0.5;
+                    b.leftWing.rotation.y = flap;
+                    b.rightWing.rotation.y = -flap;
+                    b.basePos.copy(b.group.position); 
+                }
+
+                // 透明度与淡入淡出
+                let targetOpacity = 1.0;
+                if (mode === 'closeup' || mode === 'mv') {
+                    if (idx === currentTargetIdx && currentTargetIdx !== -1) {
+                        targetOpacity = 1.0;
+                    } else if (mode === 'closeup') {
+                        // 距离剔除，优化特写视觉
+                        const distToCam = currentCamPos.distanceTo(b.group.position);
+                        const fade = THREE.MathUtils.mapLinear(distToCam, 15, 80, 1.0, 0.1);
+                        targetOpacity = THREE.MathUtils.clamp(fade, 0.1, 1.0);
+                    } else {
+                        targetOpacity = 1.0;
+                    }
+                }
+                
+                b.leftWing.material.opacity = THREE.MathUtils.lerp(b.leftWing.material.opacity, targetOpacity, 0.1);
+            });
+
+            composer.render();
+        });
+
+        return () => {
+            isMounted = false;
+            resizeObserver.disconnect();
+            if (rendererRef.current) {
+                rendererRef.current.setAnimationLoop(null);
+                rendererRef.current.dispose();
+            }
+            if(mountRef.current && renderer.domElement) {
+                if(mountRef.current.contains(renderer.domElement)) {
+                    mountRef.current.removeChild(renderer.domElement);
+                }
+            }
+            scene.traverse((object) => {
+                if (object.geometry) object.geometry.dispose();
+                if (object.material) object.material.dispose();
+            });
+            renderer.dispose();
+        };
+    }, [files]);
+
+    const updateCameraPosition = () => {
+        if (!cameraRef.current) return;
+        const { radius, theta, phi } = cameraState.current;
+        const x = radius * Math.sin(phi) * Math.sin(theta);
+        const y = radius * Math.cos(phi);
+        const z = radius * Math.sin(phi) * Math.cos(theta);
+        cameraRef.current.position.set(x, y, z);
+        cameraRef.current.lookAt(0, 0, 0);
+    };
+
+    // --- 统一的输入处理 ---
+    const handleStart = (clientX, clientY) => {
+        const rect = mountRef.current.getBoundingClientRect();
+        mouse.current.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.current.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+        raycaster.current.setFromCamera(mouse.current, cameraRef.current);
+        const intersectable = [];
+        butterfliesRef.current.forEach(b => intersectable.push(b.leftWing, b.rightWing));
+        const intersects = raycaster.current.intersectObjects(intersectable);
+
+        if (intersects.length > 0) {
+            const hitMesh = intersects[0].object;
+            const idx = hitMesh.userData.parentIndex;
+
+            if (flightMode.current === 'grid') {
+                // 点击进入特写
+                setFocusModeState(true);
+                focusMode.current = true;
+                
+                if (idx !== undefined) {
+                    focusIndex.current = idx;
+                    if (butterfliesRef.current[idx]) butterfliesRef.current[idx].manualRotation.set(0, 0, 0);
+                }
+                cameraState.current.isDragging = true; 
+                cameraState.current.lastX = clientX;
+                cameraState.current.lastY = clientY;
+                return;
+            }
+            draggedObjectRef.current = hitMesh.parent.parent; 
+            planeRef.current.position.copy(draggedObjectRef.current.position);
+            planeRef.current.lookAt(cameraRef.current.position);
+        } else {
+            cameraState.current.isDragging = true;
+            cameraState.current.lastX = clientX;
+            cameraState.current.lastY = clientY;
+            mountRef.current.style.cursor = 'move';
+            
+            // 点击空白处退出特写
+            if (focusMode.current) {
+                setFocusModeState(false);
+                focusMode.current = false;
+            }
+        }
+    };
+
+    const handleMove = (clientX, clientY) => {
+        if (draggedObjectRef.current) {
+            const rect = mountRef.current.getBoundingClientRect();
+            mouse.current.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.current.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.current.setFromCamera(mouse.current, cameraRef.current);
+            const intersects = raycaster.current.intersectObject(planeRef.current);
+            if (intersects.length > 0) draggedObjectRef.current.position.copy(intersects[0].point);
+            return;
+        }
+        if (cameraState.current.isDragging) {
+            const deltaX = clientX - cameraState.current.lastX;
+            const deltaY = clientY - cameraState.current.lastY;
+            cameraState.current.lastX = clientX;
+            cameraState.current.lastY = clientY;
+            
+            if (focusMode.current) {
+                const targetB = butterfliesRef.current[focusIndex.current];
+                if (targetB) {
+                    targetB.manualRotation.y += deltaX * 0.01;
+                    targetB.manualRotation.x += deltaY * 0.01;
+                }
+            } else {
+                cameraState.current.theta -= deltaX * 0.005;
+                cameraState.current.phi -= deltaY * 0.005;
+                cameraState.current.phi = Math.max(0.1, Math.min(Math.PI - 0.1, cameraState.current.phi));
+                updateCameraPosition();
+            }
+        }
+    };
+
+    const handleEnd = () => {
+        draggedObjectRef.current = null;
+        cameraState.current.isDragging = false;
+        mountRef.current.style.cursor = 'grab';
+    };
+
+    const handleMouseDown = (e) => { e.preventDefault(); handleStart(e.clientX, e.clientY); };
+    const handleMouseMove = (e) => { handleMove(e.clientX, e.clientY); };
+    const handleMouseUp = handleEnd;
+    const handleTouchStart = (e) => {
+        const touch = e.touches[0];
+        touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+        handleStart(touch.clientX, touch.clientY);
+    };
+    const handleTouchMove = (e) => {
+        const touch = e.touches[0];
+        handleMove(touch.clientX, touch.clientY);
+    };
+    const handleTouchEnd = (e) => {
+        handleEnd();
+        // 简单滑动检测
+        const touch = e.changedTouches[0];
+        const dx = touch.clientX - touchStartRef.current.x;
+        const dt = Date.now() - touchStartRef.current.time;
+        if (focusMode.current && dt < 500 && Math.abs(dx) > 30) {
+            if (dx > 0) switchFocus('prev');
+            else switchFocus('next');
+        }
+    };
+    const handleWheel = (e) => {
+        if (focusMode.current) return;
+        const delta = e.deltaY * 0.1;
+        const newR = Math.max(20, Math.min(800, cameraState.current.radius + delta));
+        cameraState.current.radius = newR;
+        updateCameraPosition(); 
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex flex-col watercolor-paper no-select">
+            <audio ref={audioRef} src={audioUrl} loop crossOrigin="anonymous" />
+
+            {/* 顶栏：全屏时自动隐藏 */}
+            <div className={`absolute top-0 left-0 w-full p-4 z-[200] flex justify-between items-center pointer-events-none transition-opacity duration-300 ${isFullscreen ? 'opacity-0' : 'opacity-100'}`}>
+                <button 
+                    onClick={onBack} 
+                    className="w-10 h-10 bg-white/50 hover:bg-white text-gray-800 rounded-full backdrop-blur-md flex items-center justify-center transition shadow-lg pointer-events-auto"
+                    title="返回采集"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                    </svg>
+                </button>
+
+                <div className="flex flex-col items-center">
+                    <h2 className="text-gray-800/80 font-serif text-xl tracking-widest pointer-events-auto select-none">CHAOS GALLERY</h2>
+                    {mvState.current.isPlaying && <span className="text-[10px] text-red-500 font-mono animate-pulse">● RECORDING</span>}
+                </div>
+                
+                {/* 占位，保持中间对齐 */}
+                <div className="w-10"></div>
+            </div>
+
+            {/* 全屏切换按钮：始终显示，全屏时变小且半透明 */}
+            <div className="absolute top-4 right-4 z-[210] pointer-events-auto">
+                <button 
+                    onClick={toggleFullscreen} 
+                    className={`rounded-full backdrop-blur-md flex items-center justify-center transition-all shadow-lg ${isFullscreen ? 'w-8 h-8 bg-black/20 text-white/50 hover:bg-black/40 hover:text-white' : 'w-10 h-10 bg-white/50 hover:bg-white text-gray-800'}`}
+                    title={isFullscreen ? "退出全屏" : "全屏模式"}
+                >
+                    {isFullscreen ? (
+                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5M15 15l5.25 5.25" />
+                        </svg>
+                    ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+                        </svg>
+                    )}
+                </button>
+            </div>
+
+            <div 
+                ref={mountRef} 
+                className="flex-1 w-full h-full cursor-grab active:cursor-grabbing touch-none"
+                style={{ touchAction: 'none' }} 
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                onWheel={handleWheel}
+            >
+            </div>
+
+            {/* 控制栏：全屏时隐藏 */}
+            <div className={`absolute bottom-6 left-1/2 -translate-x-1/2 z-[200] pointer-events-auto transition-opacity duration-300 ${isFullscreen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+                <div className="flex items-center gap-4 bg-white/70 backdrop-blur-xl px-6 py-3 rounded-2xl shadow-2xl border border-white/50">
+                     <button 
+                        onClick={() => switchMode('free')}
+                        className={`w-10 h-10 touch-btn rounded-xl flex items-center justify-center text-xl transition-all ${flightModeState === 'free' ? 'bg-slate-800 text-white shadow-lg scale-110' : 'text-slate-600 hover:bg-white/50'}`}
+                        title="自由飞行 (1)"
+                    >
+                        🦋
+                    </button>
+                    <div className="w-px h-6 bg-slate-300"></div>
+                    <button 
+                        onClick={() => switchMode('grid')}
+                        className={`w-10 h-10 touch-btn rounded-xl flex items-center justify-center text-xl transition-all ${flightModeState === 'grid' ? 'bg-slate-800 text-white shadow-lg scale-110' : 'text-slate-600 hover:bg-white/50'}`}
+                        title="标本列队 (2)"
+                    >
+                        ▦
+                    </button>
+                    <div className="w-px h-6 bg-slate-300"></div>
+                    <button 
+                        onClick={() => switchMode('closeup')}
+                        className={`w-10 h-10 touch-btn rounded-xl flex items-center justify-center text-xl transition-all ${flightModeState === 'closeup' ? 'bg-slate-800 text-white shadow-lg scale-110' : 'text-slate-600 hover:bg-white/50'}`}
+                        title="特写循环 (3)"
+                    >
+                        🎥
+                    </button>
+                    <div className="w-px h-6 bg-slate-300"></div>
+                    <button 
+                        onClick={() => switchMode('mv')}
+                        className={`w-10 h-10 touch-btn rounded-xl flex items-center justify-center text-xl transition-all ${flightModeState === 'mv' ? 'bg-rose-600 text-white shadow-lg scale-110' : 'text-rose-600 hover:bg-rose-100'}`}
+                        title="MV 模式 (4)"
+                    >
+                        🎵
+                    </button>
+                </div>
+            </div>
+
+            {/* 左右切换箭头：仅在特写模式且非全屏时显示 */}
+            {focusModeState && !isFullscreen && (
+                <>
+                    <button 
+                        onClick={() => switchFocus('prev')}
+                        className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-white/30 hover:bg-white/60 text-slate-800 rounded-full backdrop-blur-md flex items-center justify-center transition pointer-events-auto z-[200]"
+                    >
+                        ◀
+                    </button>
+                    <button 
+                        onClick={() => switchFocus('next')}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 bg-white/30 hover:bg-white/60 text-slate-800 rounded-full backdrop-blur-md flex items-center justify-center transition pointer-events-auto z-[200]"
+                    >
+                        ▶
+                    </button>
+                </>
+            )}
+
+            {files.length === 0 && (
+                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[100]">
+                    <div className="bg-black/40 text-white px-6 py-3 rounded-full backdrop-blur-md border border-white/20">
+                        暂无素材，请先返回拍摄
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// --- App Component ---
+function App() {
+    const [files, setFiles] = useState([]); 
+    const [defaultTolerance, setDefaultTolerance] = useState(30); 
+    const [selectedId, setSelectedId] = useState(null);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [isZipping, setIsZipping] = useState(false);
+    const [cameraActive, setCameraActive] = useState(false);
+    const [flashEffect, setFlashEffect] = useState(false); 
+    const [videoAspectRatio, setVideoAspectRatio] = useState(1);
+    const [viewMode, setViewMode] = useState('capture');
+    
+    const [audioUrl, setAudioUrl] = useState(null);
+    
+    const [loading, setLoading] = useState(true);
+    const [progress, setProgress] = useState(0);
+
+    const videoRef = useRef(null);
+    const streamRef = useRef(null);
+    const fileInputRef = useRef(null); 
+    const audioInputRef = useRef(null);
+    const debounceTimerRef = useRef(null); 
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setProgress(prev => {
+                if (prev >= 100) {
+                    clearInterval(timer);
+                    setTimeout(() => setLoading(false), 800); 
+                    return 100;
+                }
+                const increment = Math.random() * 8; 
+                return Math.min(prev + increment, 100);
+            });
+        }, 100);
+        return () => clearInterval(timer);
+    }, []);
+
+    const startCamera = async () => {
+        try {
+            const constraints = { video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } };
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            if(videoRef.current) videoRef.current.srcObject = stream;
+            streamRef.current = stream;
+            setCameraActive(true);
+        } catch (err) { console.error("相机启动失败:", err); }
+    };
+    const stopCamera = () => {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+            setCameraActive(false);
+        }
+    };
+    useEffect(() => {
+        if (viewMode === 'capture' && !loading) startCamera();
+        else stopCamera();
+        return () => stopCamera();
+    }, [viewMode, loading]);
+    
+    useEffect(() => {
+        if (viewMode === 'capture' && !selectedId && !loading && streamRef.current && videoRef.current) {
+            if (videoRef.current.srcObject !== streamRef.current) {
+                videoRef.current.srcObject = streamRef.current;
+                videoRef.current.play().catch(e => console.log("自动恢复播放失败:", e));
+            }
+        }
+    }, [selectedId, viewMode, loading]); 
+
+    const handleVideoMetadata = (e) => {
+        const v = e.target;
+        if (v.videoWidth && v.videoHeight) setVideoAspectRatio(v.videoWidth / v.videoHeight);
+    };
+
+    const getSquareCanvas512 = (source, srcW, srcH) => {
+        const size = 512;
+        const canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const scale = size / Math.min(srcW, srcH);
+        const scaledW = srcW * scale; const scaledH = srcH * scale;
+        const dx = (size - scaledW) / 2; const dy = (size - scaledH) / 2;
+        ctx.drawImage(source, 0, 0, srcW, srcH, dx, dy, scaledW, scaledH);
+        return canvas;
+    };
+
+    // 优化的背景去除算法：增加边缘平滑
+    const removeBackground = useCallback((inputCanvas, toleranceVal) => {
+        const width = inputCanvas.width; const height = inputCanvas.height;
+        const ctx = inputCanvas.getContext('2d');
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const data = imageData.data;
+        const threshold = toleranceVal * 4.41; 
+        
+        // 简单的 Feathering (向内腐蚀一点点，然后平滑)
+        // 这里为了性能，我们做一次简单的 Euclidean distance check + Alpha Ramp
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i]; const g = data[i + 1]; const b = data[i + 2];
+            // 假设白色背景 (255, 255, 255)
+            const dist = Math.sqrt((r - 255) ** 2 + (g - 255) ** 2 + (b - 255) ** 2);
+            
+            if (dist < threshold) { 
+                data[i + 3] = 0; // 完全透明
+            } else if (dist < threshold + 20) {
+                // 边缘过渡区域
+                const alpha = (dist - threshold) / 20; 
+                data[i + 3] = Math.floor(alpha * 255);
+            }
+        }
+        ctx.putImageData(imageData, 0, 0);
+        return inputCanvas;
+    }, []);
+
+    const reProcessFile = async (fileObj, newTolerance) => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512; canvas.height = 512;
+                canvas.getContext('2d').drawImage(img, 0, 0);
+                const processedCanvas = removeBackground(canvas, newTolerance);
+                processedCanvas.toBlob((blob) => {
+                    resolve({ ...fileObj, tolerance: newTolerance, processedUrl: URL.createObjectURL(blob), blob: blob });
+                }, 'image/png');
+            };
+            img.src = fileObj.originalUrl;
+        });
+    };
+
+    const handleSliderChange = (e) => {
+        // 使用 parseFloat 解析小数
+        const newVal = parseFloat(e.target.value);
+        if (selectedId) {
+            setFiles(prev => prev.map(f => f.id === selectedId ? { ...f, tolerance: newVal } : f));
+            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+            debounceTimerRef.current = setTimeout(async () => {
+                const targetFile = files.find(f => f.id === selectedId);
+                if (targetFile) {
+                    const updatedFile = await reProcessFile(targetFile, newVal);
+                    setFiles(prev => prev.map(f => f.id === selectedId ? updatedFile : f));
+                }
+            }, 300);
+        } else {
+            setDefaultTolerance(newVal);
+        }
+    };
+
+    const captureAndProcess = useCallback(async () => {
+        if (!videoRef.current || !streamRef.current) return;
+        setFlashEffect(true);
+        setTimeout(() => setFlashEffect(false), 100);
+        const video = videoRef.current;
+        const w = video.videoWidth; const h = video.videoHeight;
+        const rawSquareCanvas = getSquareCanvas512(video, w, h);
+        const rawSquareUrl = rawSquareCanvas.toDataURL('image/png');
+        const processCanvas = document.createElement('canvas');
+        processCanvas.width = 512; processCanvas.height = 512;
+        processCanvas.getContext('2d').drawImage(rawSquareCanvas, 0, 0);
+        const finalCanvas = removeBackground(processCanvas, defaultTolerance);
+        
+        finalCanvas.toBlob(blob => {
+            const newFile = {
+                id: Date.now(),
+                name: `capture_${Date.now()}.png`,
+                originalUrl: rawSquareUrl,
+                processedUrl: URL.createObjectURL(blob),
+                blob: blob,
+                tolerance: defaultTolerance,
+                status: 'done'
+            };
+            setFiles(prev => [...prev, newFile]);
+        }, 'image/png');
+    }, [defaultTolerance, removeBackground]);
+
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.code === 'Space' && viewMode === 'capture' && cameraActive) {
+                e.preventDefault(); 
+                captureAndProcess();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [viewMode, cameraActive, captureAndProcess]);
+
+    const handleFileUpload = async (e) => {
+        const selectedFiles = Array.from(e.target.files);
+        if (selectedFiles.length === 0) return;
+        setIsProcessing(true);
+        const newProcessedFiles = await Promise.all(selectedFiles.map(async (file, index) => {
+             return new Promise((resolve) => {
+                const img = new Image();
+                const tempUrl = URL.createObjectURL(file);
+                img.onload = () => {
+                    const rawSquareCanvas = getSquareCanvas512(img, img.width, img.height);
+                    const rawSquareUrl = rawSquareCanvas.toDataURL('image/png');
+                    const processCanvas = document.createElement('canvas');
+                    processCanvas.width = 512; processCanvas.height = 512;
+                    processCanvas.getContext('2d').drawImage(rawSquareCanvas, 0, 0);
+                    const finalCanvas = removeBackground(processCanvas, defaultTolerance);
+                    finalCanvas.toBlob(blob => {
+                        const newId = Date.now() + Math.random() + index;
+                        resolve({
+                            id: newId,
+                            name: file.name.replace(/\.[^/.]+$/, "") + "_512.png",
+                            originalUrl: rawSquareUrl,
+                            processedUrl: URL.createObjectURL(blob),
+                            blob: blob,
+                            tolerance: defaultTolerance,
+                            status: 'done'
+                        });
+                        URL.revokeObjectURL(tempUrl);
+                    }, 'image/png');
+                };
+                img.src = tempUrl;
+             });
+        }));
+        setFiles(prev => [...prev, ...newProcessedFiles]);
+        setIsProcessing(false);
+        e.target.value = ''; 
+    };
+
+    const handleAudioUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const url = URL.createObjectURL(file);
+            setAudioUrl(url);
+        }
+        e.target.value = ''; 
+    };
+
+    const downloadZip = async () => {
+        if (files.length === 0) return;
+        setIsZipping(true);
+        const zip = new JSZip();
+        files.forEach((file, index) => { zip.file(`${index + 1}.png`, file.blob); });
+        const content = await zip.generateAsync({ type: "blob" });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(content);
+        link.download = "papercut_ecology_assets.zip";
+        link.click();
+        setIsZipping(false);
+    };
+
+    const clearAll = () => { 
+        if(confirm("确定重置整个生态系统吗？所有蝴蝶将消失。")) {
+            setFiles([]); 
+            setSelectedId(null);
+        }
+    }
+
+    const selectedFile = useMemo(() => files.find(f => f.id === selectedId), [files, selectedId]);
+    
+    const currentSliderValue = useMemo(() => {
+        if (selectedId && selectedFile) {
+            return selectedFile.tolerance;
+        }
+        return defaultTolerance;
+    }, [selectedId, selectedFile, defaultTolerance]);
+
+    if (loading) {
+        return <LoadingScreen progress={Math.round(progress)} />;
+    }
+
+    if (viewMode === 'gallery') {
+        return <ChaosGallery files={files} onBack={() => setViewMode('capture')} audioUrl={audioUrl} />;
+    }
+
+    return (
+        <div className="h-screen flex flex-col md:flex-row bg-slate-900 overflow-hidden font-sans">
+            {/* 侧边栏 */}
+            <div className="order-2 md:order-1 h-2/5 md:h-full md:w-96 flex flex-col bg-slate-800 border-t md:border-t-0 md:border-r border-slate-700 z-30 shadow-2xl">
+                <div className="hidden md:flex p-6 bg-slate-900 border-b border-slate-700 justify-between items-center">
+                    <div>
+                        <h1 className="text-white font-serif tracking-wider text-xl">素材库</h1>
+                        <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-widest">Digital Ecology System</p>
+                    </div>
+                    <span className="text-xs bg-cyan-900/50 text-cyan-300 px-3 py-1 rounded-full border border-cyan-800 font-mono">{files.length} ITEMS</span>
+                </div>
+                
+                {/* 调节面板 */}
+                <div className="px-6 py-6 bg-slate-800 border-b border-slate-700">
+                    <div className="flex justify-between items-center mb-3">
+                        <span className={`text-xs font-bold tracking-wide ${selectedId ? 'text-green-400' : 'text-slate-400'}`}>
+                            {selectedId ? "当前容差调节 (Tolerance)" : "全局默认容差"}
+                        </span>
+                        {/* 格式化显示一位小数 */}
+                        <span className="text-xs text-cyan-400 font-mono bg-cyan-900/30 px-2 rounded">{Number(currentSliderValue).toFixed(1)}</span>
+                    </div>
+                    {/* 重构的滑杆容器 */}
+                    <div className="relative h-6 flex items-center select-none w-full">
+                        {/* 轨道背景 (div) */}
+                        <div className="absolute w-full h-1.5 bg-slate-600 rounded-lg top-1/2 -translate-y-1/2 left-0"></div>
+                        
+                        {/* 进度条 (div) */}
+                        <div 
+                            className="absolute h-1.5 bg-cyan-500 rounded-l-lg top-1/2 -translate-y-1/2 left-0 pointer-events-none" 
+                            style={{ width: `${(currentSliderValue / 80) * 100}%` }}
+                        ></div>
+                        
+                        {/* 实际输入控件 (input) - 位于最上层，透明背景 */}
+                        <input 
+                            type="range" 
+                            min="1" max="80" step="0.5"
+                            value={currentSliderValue} 
+                            onChange={handleSliderChange} 
+                            className="absolute w-full h-full opacity-100 z-20 cursor-pointer inset-0 m-0 p-0"
+                        />
+                    </div>
+                </div>
+
+                {/* 按钮组 */}
+                <div className="hidden md:grid grid-cols-2 p-4 gap-3 bg-slate-800">
+                     <button onClick={() => fileInputRef.current.click()} className="px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20" disabled={isProcessing}>
+                        <span>📷 导入图片</span>
+                    </button>
+                    <button onClick={() => audioInputRef.current.click()} className={`px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 border ${audioUrl ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-900/20' : 'bg-transparent border-slate-600 text-slate-400 hover:border-purple-500 hover:text-purple-400'}`} title="导入MP3">
+                        <span>{audioUrl ? "🎵 已加载音乐" : "🎵 上传音乐"}</span>
+                    </button>
+                    <button onClick={clearAll} className="col-span-2 px-3 py-2 text-xs text-slate-500 hover:text-red-400 transition text-center" title="清空">重置整个生态系统</button>
+                </div>
+
+                {/* 网格列表 */}
+                <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 hide-scrollbar bg-slate-800/50" onClick={(e) => {
+                    if(e.target === e.currentTarget) setSelectedId(null);
+                }}>
+                    <div className="flex md:grid md:grid-cols-3 gap-3 overflow-x-auto md:overflow-x-hidden pb-10">
+                        {files.length === 0 ? (
+                            <div className="w-full col-span-3 text-center text-slate-600 text-sm py-12 flex flex-col items-center">
+                                <div className="w-12 h-12 rounded-full bg-slate-700/50 flex items-center justify-center mb-4 text-2xl">🦋</div>
+                                <p>生态箱是空的</p>
+                                <p className="text-xs mt-2 opacity-50">拍摄或导入图片以孵化蝴蝶</p>
+                            </div>
+                        ) : (
+                            files.map((file, index) => (
+                                <div 
+                                    key={file.id} 
+                                    onClick={(e) => { e.stopPropagation(); setSelectedId(file.id); }}
+                                    className={`relative flex-shrink-0 w-20 h-20 md:w-full md:h-auto md:aspect-square bg-slate-700 rounded-xl overflow-hidden group cursor-pointer border transition-all duration-300 ${
+                                        selectedId === file.id ? 'border-green-500 ring-2 ring-green-500/20 shadow-xl z-10 scale-105' : 'border-slate-600 hover:border-slate-400'
+                                    }`}
+                                >
+                                    <div className="absolute top-1 left-1 text-[8px] bg-black/40 px-1.5 py-0.5 rounded text-white z-10 font-mono">{index + 1}</div>
+                                    <div className="w-full h-full checkerboard flex items-center justify-center p-2">
+                                        {isProcessing && selectedId === file.id ? (
+                                            <div className="w-4 h-4 border-2 border-green-500 rounded-full animate-spin border-t-transparent"></div> 
+                                        ) : (
+                                            <img src={file.processedUrl} className="w-full h-full object-contain drop-shadow-md" />
+                                        )}
+                                    </div>
+                                    <button 
+                                        onClick={(e) => { 
+                                            e.stopPropagation(); 
+                                            setFiles(files.filter(f => f.id !== file.id)); 
+                                            if (selectedId === file.id) setSelectedId(null);
+                                        }} 
+                                        className="absolute top-1 right-1 w-5 h-5 bg-red-500/80 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            ))
+                        )}
+                        <div className="w-4 flex-shrink-0 md:hidden"></div>
+                    </div>
+                </div>
+
+                {/* 底部功能栏 */}
+                <div className="p-4 bg-slate-900 border-t border-slate-800">
+                    <div className="flex gap-3">
+                         <button 
+                            onClick={() => setViewMode('gallery')}
+                            disabled={files.length === 0}
+                            className="flex-1 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl flex items-center justify-center font-bold shadow-lg disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95"
+                        >
+                           开始预览素材
+                        </button>
+                        <button 
+                            onClick={downloadZip}
+                            disabled={files.length === 0 || isProcessing || isZipping}
+                            className="w-14 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white shadow-lg flex items-center justify-center transition-colors disabled:opacity-30"
+                            title="下载资产"
+                        >
+                            ⬇
+                        </button>
+                    </div>
+                    {/* 移动端快捷操作 */}
+                    <div className="flex md:hidden gap-2 mt-3 pt-3 border-t border-slate-800">
+                        <button onClick={() => fileInputRef.current.click()} className="flex-1 py-2 bg-slate-800 rounded-lg text-xs text-blue-200 border border-slate-700">导入图片</button>
+                         <button onClick={() => audioInputRef.current.click()} className={`flex-1 py-2 rounded-lg text-xs border ${audioUrl ? 'bg-purple-900/30 border-purple-800 text-purple-200' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+                            {audioUrl ? "音乐OK" : "配乐"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* 主相机视图 */}
+            <div className="order-1 md:order-2 flex-1 relative bg-black flex items-center justify-center overflow-hidden" onClick={() => setSelectedId(null)}>
+                {selectedFile ? (
+                    <div 
+                        className="relative shadow-2xl border border-gray-300 bg-gray-100 overflow-hidden w-full h-full flex items-center justify-center p-10" 
+                        onClick={(e) => e.stopPropagation()} 
+                    >
+                        <div className="absolute inset-0 checkerboard opacity-10"></div>
+                        <img src={selectedFile.processedUrl} className="max-w-full max-h-full object-contain relative z-10 drop-shadow-2xl filter drop-shadow-[0_20px_20px_rgba(0,0,0,0.5)]" alt="Editing" />
+                        
+                        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+                            <div className="bg-black/60 text-white text-xs px-6 py-2 rounded-full backdrop-blur-md border border-white/10 shadow-xl">
+                                <span className="font-bold text-green-400 mr-2">DETAILS VIEW</span>
+                                <span className="text-slate-300">Tolerance: <span className="text-white font-mono">{selectedFile.tolerance}</span></span>
+                            </div>
+                        </div>
+
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); setSelectedId(null); }}
+                            className="absolute top-6 right-6 z-50 w-12 h-12 bg-white/10 hover:bg-white/20 text-slate-800 hover:text-white rounded-full flex items-center justify-center transition backdrop-blur-md border border-slate-400 hover:border-white/10 cursor-pointer pointer-events-auto"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                ) : (
+                    <div className="relative w-full h-full flex items-center justify-center bg-black">
+                        <div className="relative w-full h-full flex items-center justify-center overflow-hidden" style={{ aspectRatio: videoAspectRatio }}>
+                            <video ref={videoRef} autoPlay playsInline muted onLoadedMetadata={handleVideoMetadata} className="w-full h-full object-cover opacity-80" />
+                            
+                            {/* 取景框 UI */}
+                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 border border-white/30 shadow-[0_0_0_9999px_rgba(0,0,0,0.85)] pointer-events-none transition-all duration-300 z-10" style={{ aspectRatio: '1/1', height: videoAspectRatio > 1 ? '80%' : 'auto', width: videoAspectRatio > 1 ? 'auto' : '80%' }}>
+                                <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-white"></div>
+                                <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-white"></div>
+                                <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-white"></div>
+                                <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-white"></div>
+                                
+                                {/* 红色取景框已根据要求移除所有红线，只保留白色外框 */}
+                                
+                                <div className={`absolute inset-0 bg-white transition-opacity duration-100 ease-out ${flashEffect ? 'opacity-80' : 'opacity-0'}`}></div>
+                            </div>
+
+                            <div className="absolute bottom-10 left-1/2 -translate-x-1/2 text-white/50 text-xs font-mono tracking-widest pointer-events-none">
+                                {cameraActive ? "PRESS SPACE TO CAPTURE" : "CAMERA OFFLINE"}
+                            </div>
+                        </div>
+
+                        {!cameraActive && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-slate-900 z-20">
+                                 <button onClick={(e) => { e.stopPropagation(); startCamera(); }} className="px-8 py-4 bg-blue-600 rounded-full text-white font-bold tracking-widest hover:bg-blue-500 transition shadow-lg shadow-blue-900/50">
+                                    START CAMERA
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
+                
+                {/* 拍摄按钮 (仅在无选中文件且相机开启时显示) */}
+                {!selectedFile && cameraActive && (
+                    <div className="absolute bottom-8 w-full flex justify-center items-center z-30 pointer-events-none">
+                        <button 
+                            onClick={captureAndProcess} 
+                            className="pointer-events-auto w-24 h-24 rounded-full border-4 border-white/50 bg-white/10 backdrop-blur-sm flex items-center justify-center transition-all active:scale-95 active:bg-white/30 hover:border-white"
+                        >
+                            <div className="w-20 h-20 rounded-full bg-white shadow-lg"></div>
+                        </button>
+                    </div>
+                )}
+            </div>
+            
+            <input type="file" multiple accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+            <input type="file" accept="audio/*" ref={audioInputRef} onChange={handleAudioUpload} className="hidden" />
+        </div>
+    );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+
+</script>
+
+</body>
+</html>

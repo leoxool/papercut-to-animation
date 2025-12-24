@@ -10,22 +10,25 @@ export const getSquareCanvas512 = (source, srcW, srcH) => {
     return canvas;
 };
 
-export const removeBackground = (inputCanvas, toleranceVal) => {
+export const removeBackground = (inputCanvas, toleranceVal, bgColor) => {
     const width = inputCanvas.width;
     const height = inputCanvas.height;
     const ctx = inputCanvas.getContext('2d');
     const imageData = ctx.getImageData(0, 0, width, height);
     const data = imageData.data;
     const threshold = toleranceVal * 4.41;
-    
+
+    // 如果提供了背景色，使用该颜色作为参考；否则默认使用白色
+    const targetColor = bgColor || { r: 255, g: 255, b: 255 };
+
     for (let i = 0; i < data.length; i += 4) {
         const r = data[i]; const g = data[i + 1]; const b = data[i + 2];
-        const dist = Math.sqrt((r - 255) ** 2 + (g - 255) ** 2 + (b - 255) ** 2);
-        
-        if (dist < threshold) { 
-            data[i + 3] = 0; 
+        const dist = Math.sqrt((r - targetColor.r) ** 2 + (g - targetColor.g) ** 2 + (b - targetColor.b) ** 2);
+
+        if (dist < threshold) {
+            data[i + 3] = 0;
         } else if (dist < threshold + 20) {
-            const alpha = (dist - threshold) / 20; 
+            const alpha = (dist - threshold) / 20;
             data[i + 3] = Math.floor(alpha * 255);
         }
     }

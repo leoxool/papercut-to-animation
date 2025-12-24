@@ -23,7 +23,7 @@ function App() {
 
     // ★★★ 新增：下载命名面板状态 ★★★
     const [showDownloadDialog, setShowDownloadDialog] = useState(false);
-    const [zipFileName, setZipFileName] = useState('papercut_assets');
+    const [zipFileName, setZipFileName] = useState('');
     const [zipNameError, setZipNameError] = useState('');
 
     // ★★★ 默认使用love.mp3作为MV模式音乐 ★★★

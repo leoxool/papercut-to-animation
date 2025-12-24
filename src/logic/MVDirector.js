@@ -222,11 +222,11 @@ export class MVDirector {
     }
 
     animateIdle(t) {
-        const r = 140;
-        this.ctx.camera.position.x = Math.sin(t * 0.1) * r;
-        this.ctx.camera.position.z = Math.cos(t * 0.1) * r;
-        this.ctx.camera.position.y = 60;
-        this.ctx.camera.lookAt(0, 0, 0);
+        // const r = 140;
+        // this.ctx.camera.position.x = Math.sin(t * 0.1) * r;
+        // this.ctx.camera.position.z = Math.cos(t * 0.1) * r;
+        // this.ctx.camera.position.y = 60;
+        // this.ctx.camera.lookAt(0, 0, 0);
     }
 
     animateActors(currentTime) {

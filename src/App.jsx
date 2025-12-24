@@ -3,27 +3,47 @@ import JSZip from 'jszip';
 import ChaosGallery from './components/ChaosGallery';
 import LoadingScreen from './components/LoadingScreen';
 import { removeBackground, getSquareCanvas512 } from './utils/imageProcessing';
+// 使用 Vite 的 ?url 查询符引入静态资源，获得正确的 URL
+import loveMusic from '../public/love.mp3?url';
 
 function App() {
-    const [files, setFiles] = useState([]); 
-    const [defaultTolerance, setDefaultTolerance] = useState(30); 
+    const [files, setFiles] = useState([]);
+    const [defaultTolerance, setDefaultTolerance] = useState(38); // ★★★ 修改：默认去背景强度改为38 ★★★
     const [selectedId, setSelectedId] = useState(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [isZipping, setIsZipping] = useState(false);
     const [cameraActive, setCameraActive] = useState(false);
-    const [flashEffect, setFlashEffect] = useState(false); 
+    const [flashEffect, setFlashEffect] = useState(false);
     const [videoAspectRatio, setVideoAspectRatio] = useState(1);
     const [viewMode, setViewMode] = useState('capture');
-    
-    const [audioUrl, setAudioUrl] = useState(null);
+
+    // ★★★ 新增：纯色材质编辑状态（仅在详情页使用） ★★★
+    const [editingColor, setEditingColor] = useState('#ff6b9d');
+    const [useRandomColor, setUseRandomColor] = useState(false);
+
+    // ★★★ 新增：下载命名面板状态 ★★★
+    const [showDownloadDialog, setShowDownloadDialog] = useState(false);
+    const [zipFileName, setZipFileName] = useState('');
+    const [zipNameError, setZipNameError] = useState('');
+
+    // ★★★ 默认使用love.mp3作为MV模式音乐 ★★★
+    // 使用 import 引入的 URL，支持部署到任意路径
+    const audioUrl = loveMusic;
+
+    // ★★★ 监听下载对话框状态，重置表单 ★★★
+    useEffect(() => {
+        if (showDownloadDialog) {
+            setZipFileName('');
+            setZipNameError('');
+        }
+    }, [showDownloadDialog]);
     
     const [loading, setLoading] = useState(true);
     const [progress, setProgress] = useState(0);
 
     const videoRef = useRef(null);
     const streamRef = useRef(null);
-    const fileInputRef = useRef(null); 
-    const audioInputRef = useRef(null);
+    const fileInputRef = useRef(null);
     const debounceTimerRef = useRef(null); 
 
     useEffect(() => {
@@ -77,17 +97,41 @@ function App() {
         if (v.videoWidth && v.videoHeight) setVideoAspectRatio(v.videoWidth / v.videoHeight);
     };
 
+    // ★★★ 修改：生成自然随机颜色（不限制高纯度） ★★★
+    const generateRandomColor = () => {
+        const hue = Math.random() * 360;
+        const saturation = 20 + Math.random() * 60; // 20-80%（更自然的饱和度）
+        const lightness = 30 + Math.random() * 50; // 30-80%（更自然的亮度）
+        return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+    };
+
     const reProcessFile = async (fileObj, newTolerance) => {
         return new Promise((resolve) => {
             const img = new Image();
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = 512; canvas.height = 512;
-                canvas.getContext('2d').drawImage(img, 0, 0);
-                const processedCanvas = removeBackground(canvas, newTolerance);
-                processedCanvas.toBlob((blob) => {
-                    resolve({ ...fileObj, tolerance: newTolerance, processedUrl: URL.createObjectURL(blob), blob: blob });
-                }, 'image/png');
+            img.onload = async () => {
+                if (fileObj.materialType === 'solid-color') {
+                    // ★★★ 纯色材质：保持颜色，重新生成 ★★★
+                    const color = fileObj.color || editingColor || generateRandomColor();
+                    const updated = await generateSolidColorMaterial(
+                        { ...fileObj, tolerance: newTolerance },
+                        color
+                    );
+                    resolve(updated);
+                } else {
+                    // ★★★ 图像材质：原有逻辑 ★★★
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 512; canvas.height = 512;
+                    canvas.getContext('2d').drawImage(img, 0, 0);
+                    const processedCanvas = removeBackground(canvas, newTolerance);
+                    processedCanvas.toBlob((blob) => {
+                        resolve({
+                            ...fileObj,
+                            tolerance: newTolerance,
+                            processedUrl: URL.createObjectURL(blob),
+                            blob: blob
+                        });
+                    }, 'image/png');
+                }
             };
             img.src = fileObj.originalUrl;
         });
@@ -114,6 +158,7 @@ function App() {
         if (!videoRef.current || !streamRef.current) return;
         setFlashEffect(true);
         setTimeout(() => setFlashEffect(false), 100);
+
         const video = videoRef.current;
         const w = video.videoWidth; const h = video.videoHeight;
         const rawSquareCanvas = getSquareCanvas512(video, w, h);
@@ -122,7 +167,7 @@ function App() {
         processCanvas.width = 512; processCanvas.height = 512;
         processCanvas.getContext('2d').drawImage(rawSquareCanvas, 0, 0);
         const finalCanvas = removeBackground(processCanvas, defaultTolerance);
-        
+
         finalCanvas.toBlob(blob => {
             const newFile = {
                 id: Date.now(),
@@ -131,11 +176,12 @@ function App() {
                 processedUrl: URL.createObjectURL(blob),
                 blob: blob,
                 tolerance: defaultTolerance,
+                materialType: 'image', // ★★★ 默认为图像材质 ★★★
                 status: 'done'
             };
             setFiles(prev => [...prev, newFile]);
         }, 'image/png');
-    }, [defaultTolerance]);
+    }, [defaultTolerance]); // ★★★ 移除依赖项，简化逻辑 ★★★
 
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -153,7 +199,7 @@ function App() {
         if (selectedFiles.length === 0) return;
         setIsProcessing(true);
         const newProcessedFiles = await Promise.all(selectedFiles.map(async (file, index) => {
-             return new Promise((resolve) => {
+            return new Promise((resolve) => {
                 const img = new Image();
                 const tempUrl = URL.createObjectURL(file);
                 img.onload = () => {
@@ -161,7 +207,8 @@ function App() {
                     const rawSquareUrl = rawSquareCanvas.toDataURL('image/png');
                     const processCanvas = document.createElement('canvas');
                     processCanvas.width = 512; processCanvas.height = 512;
-                    processCanvas.getContext('2d').drawImage(rawSquareCanvas, 0, 0);
+                    const ctx = processCanvas.getContext('2d');
+                    ctx.drawImage(rawSquareCanvas, 0, 0);
                     const finalCanvas = removeBackground(processCanvas, defaultTolerance);
                     finalCanvas.toBlob(blob => {
                         const newId = Date.now() + Math.random() + index;
@@ -172,29 +219,83 @@ function App() {
                             processedUrl: URL.createObjectURL(blob),
                             blob: blob,
                             tolerance: defaultTolerance,
+                            materialType: 'image', // ★★★ 默认为图像材质 ★★★
                             status: 'done'
                         });
                         URL.revokeObjectURL(tempUrl);
                     }, 'image/png');
                 };
                 img.src = tempUrl;
-             });
+            });
         }));
         setFiles(prev => [...prev, ...newProcessedFiles]);
         setIsProcessing(false);
-        e.target.value = ''; 
+        e.target.value = '';
     };
 
-    const handleAudioUpload = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            const url = URL.createObjectURL(file);
-            setAudioUrl(url);
-        }
-        e.target.value = ''; 
-    };
 
-    const downloadZip = async () => {
+    // ★★★ 新增：生成纯色材质 ★★★
+    const generateSolidColorMaterial = useCallback(async (fileObj, color) => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512; canvas.height = 512;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+
+                // 创建 alpha 遮罩
+                const maskCanvas = removeBackground(canvas, fileObj.tolerance);
+
+                // 生成纯色
+                const colorCanvas = document.createElement('canvas');
+                colorCanvas.width = 512; colorCanvas.height = 512;
+                const colorCtx = colorCanvas.getContext('2d');
+                colorCtx.fillStyle = color;
+                colorCtx.fillRect(0, 0, 512, 512);
+                colorCtx.globalCompositeOperation = 'destination-in';
+                colorCtx.drawImage(maskCanvas, 0, 0);
+
+                colorCanvas.toBlob(blob => {
+                    resolve({
+                        ...fileObj,
+                        materialType: 'solid-color',
+                        color: color,
+                        processedUrl: URL.createObjectURL(blob),
+                        blob: blob
+                    });
+                }, 'image/png');
+            };
+            img.src = fileObj.originalUrl;
+        });
+    }, []);
+
+    // ★★★ 新增：切换到图像材质（保持数据） ★★★
+    const switchToImageMaterial = useCallback(async (fileObj) => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512; canvas.height = 512;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                const finalCanvas = removeBackground(canvas, fileObj.tolerance);
+
+                finalCanvas.toBlob(blob => {
+                    resolve({
+                        ...fileObj,
+                        materialType: 'image',
+                        // 保留 color 数据以便切换回来
+                        processedUrl: URL.createObjectURL(blob),
+                        blob: blob
+                    });
+                }, 'image/png');
+            };
+            img.src = fileObj.originalUrl;
+        });
+    }, []);
+
+    const downloadZip = async (customName) => {
         if (files.length === 0) return;
         setIsZipping(true);
         const zip = new JSZip();
@@ -202,7 +303,7 @@ function App() {
         const content = await zip.generateAsync({ type: "blob" });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(content);
-        link.download = "papercut_ecology_assets.zip";
+        link.download = `${customName || 'papercut_assets'}.zip`;
         link.click();
         setIsZipping(false);
     };
@@ -241,38 +342,14 @@ function App() {
                     </div>
                     <span className="text-xs bg-cyan-900/50 text-cyan-300 px-3 py-1 rounded-full border border-cyan-800 font-mono">已采集{files.length}个作品</span>
                 </div>
-                
-                <div className="px-6 py-6 bg-slate-800 border-b border-slate-700">
-                    <div className="flex justify-between items-center mb-3">
-                        <span className={`text-xs font-bold tracking-wide ${selectedId ? 'text-green-400' : 'text-slate-400'}`}>
-                            {selectedId ? "当前容差调节 (Tolerance)" : "全局默认容差"}
-                        </span>
-                        <span className="text-xs text-cyan-400 font-mono bg-cyan-900/30 px-2 rounded">{Number(currentSliderValue).toFixed(1)}</span>
-                    </div>
-                    <div className="relative h-6 flex items-center select-none w-full">
-                        <div className="absolute w-full h-1.5 bg-slate-600 rounded-lg top-1/2 -translate-y-1/2 left-0"></div>
-                        <div 
-                            className="absolute h-1.5 bg-cyan-500 rounded-l-lg top-1/2 -translate-y-1/2 left-0 pointer-events-none" 
-                            style={{ width: `${(currentSliderValue / 80) * 100}%` }}
-                        ></div>
-                        <input 
-                            type="range" 
-                            min="1" max="80" step="0.5"
-                            value={currentSliderValue} 
-                            onChange={handleSliderChange} 
-                            className="absolute w-full h-full opacity-100 z-20 cursor-pointer inset-0 m-0 p-0"
-                        />
-                    </div>
-                </div>
 
                 <div className="hidden md:grid grid-cols-2 p-4 gap-3 bg-slate-800">
                      <button onClick={() => fileInputRef.current.click()} className="px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20" disabled={isProcessing}>
                         <span>导入图片</span>
                     </button>
-                    <button onClick={() => audioInputRef.current.click()} className={`px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 border ${audioUrl ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-900/20' : 'bg-transparent border-slate-600 text-slate-400 hover:border-purple-500 hover:text-purple-400'}`} title="导入MP3">
-                        <span>{audioUrl ? " 已加载音乐" : " 上传音乐"}</span>
+                    <button onClick={() => setShowDownloadDialog(true)} className={`px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 border ${files.length > 0 ? 'bg-cyan-600 border-cyan-500 text-white shadow-lg shadow-cyan-900/20' : 'bg-transparent border-slate-600 text-slate-400 hover:border-cyan-500 hover:text-cyan-400'}`} title="下载所有素材">
+                        <span>⬇ 下载素材</span>
                     </button>
-                    {/*<button onClick={clearAll} className="col-span-2 px-3 py-2 text-xs text-slate-500 hover:text-red-400 transition text-center" title="清空">清空所有素材</button>*/}
                 </div>
 
                 <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 hide-scrollbar bg-slate-800/50" onClick={(e) => {
@@ -287,28 +364,37 @@ function App() {
                             </div>
                         ) : (
                             files.map((file, index) => (
-                                <div 
-                                    key={file.id} 
+                                <div
+                                    key={file.id}
                                     onClick={(e) => { e.stopPropagation(); setSelectedId(file.id); }}
                                     className={`relative flex-shrink-0 w-20 h-20 md:w-full md:h-auto md:aspect-square bg-slate-700 rounded-xl overflow-hidden group cursor-pointer border transition-all duration-300 ${
                                         selectedId === file.id ? 'border-green-500 ring-2 ring-green-500/20 shadow-xl z-10 scale-105' : 'border-slate-600 hover:border-slate-400'
                                     }`}
                                 >
-                                    <div className="absolute top-1 left-1 text-[8px] bg-black/40 px-1.5 py-0.5 rounded text-white z-10 font-mono">{index + 1}</div>
+                                    <div className="absolute top-1 left-1 text-[8px] bg-black/40 px-1.5 py-0.5 rounded text-white z-20 font-mono">{index + 1}</div>
+                                    {/* ★★★ 新增：材质类型标签 ★★★ */}
+                                    {file.materialType === 'solid-color' && (
+                                        <div className="absolute top-1 right-1 z-30">
+                                            <div className="text-[8px] bg-purple-600/90 px-1 py-0.5 rounded text-white font-mono">COLOR</div>
+                                        </div>
+                                    )}
+                                    {file.materialType === 'image' && (
+                                        <div className="absolute top-1 right-1 text-[8px] bg-blue-600/90 px-1.5 py-0.5 rounded text-white z-30 font-mono">IMG</div>
+                                    )}
                                     <div className="w-full h-full checkerboard flex items-center justify-center p-2">
                                         {isProcessing && selectedId === file.id ? (
-                                            <div className="w-4 h-4 border-2 border-green-500 rounded-full animate-spin border-t-transparent"></div> 
+                                            <div className="w-4 h-4 border-2 border-green-500 rounded-full animate-spin border-t-transparent"></div>
                                         ) : (
                                             <img src={file.processedUrl} className="w-full h-full object-contain drop-shadow-md" />
                                         )}
                                     </div>
-                                    <button 
-                                        onClick={(e) => { 
-                                            e.stopPropagation(); 
-                                            setFiles(files.filter(f => f.id !== file.id)); 
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setFiles(files.filter(f => f.id !== file.id));
                                             if (selectedId === file.id) setSelectedId(null);
-                                        }} 
-                                        className="absolute top-1 right-1 w-5 h-5 bg-red-500/80 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                                        }}
+                                        className="absolute top-1 right-1 w-5 h-5 bg-red-500/80 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity z-40"
                                     >
                                         ×
                                     </button>
@@ -321,26 +407,18 @@ function App() {
 
                 <div className="p-4 bg-slate-900 border-t border-slate-800">
                     <div className="flex gap-3">
-                         <button 
+                         <button
                             onClick={() => setViewMode('gallery')}
                             disabled={files.length === 0}
                             className="flex-1 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl flex items-center justify-center font-bold shadow-lg disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95"
                         >
                             开始预览素材
                         </button>
-                        <button 
-                            onClick={downloadZip}
-                            disabled={files.length === 0 || isProcessing || isZipping}
-                            className="w-14 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-white shadow-lg flex items-center justify-center transition-colors disabled:opacity-30"
-                            title="下载资产"
-                        >
-                            ⬇
-                        </button>
                     </div>
                     <div className="flex md:hidden gap-2 mt-3 pt-3 border-t border-slate-800">
                         <button onClick={() => fileInputRef.current.click()} className="flex-1 py-2 bg-slate-800 rounded-lg text-xs text-blue-200 border border-slate-700">导入图片</button>
-                         <button onClick={() => audioInputRef.current.click()} className={`flex-1 py-2 rounded-lg text-xs border ${audioUrl ? 'bg-purple-900/30 border-purple-800 text-purple-200' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
-                            {audioUrl ? "音乐OK" : "配乐"}
+                        <button onClick={() => setShowDownloadDialog(true)} className={`flex-1 py-2 rounded-lg text-xs border ${files.length > 0 ? 'bg-cyan-900/30 border-cyan-800 text-cyan-200' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+                            下载
                         </button>
                     </div>
                 </div>
@@ -348,26 +426,196 @@ function App() {
 
             <div className="order-1 md:order-2 flex-1 relative bg-black flex items-center justify-center overflow-hidden" onClick={() => setSelectedId(null)}>
                 {selectedFile ? (
-                    <div 
-                        className="relative shadow-2xl border border-gray-300 bg-gray-100 overflow-hidden w-full h-full flex items-center justify-center p-10" 
-                        onClick={(e) => e.stopPropagation()} 
+                    <div
+                        className="relative w-full h-full flex items-center justify-center"
+                        onClick={(e) => e.stopPropagation()}
                     >
-                        <div className="absolute inset-0 checkerboard opacity-10"></div>
-                        <img src={selectedFile.processedUrl} className="max-w-full max-h-full object-contain relative z-10 drop-shadow-2xl filter drop-shadow-[0_20px_20px_rgba(0,0,0,0.5)]" alt="Editing" />
-                        
-                        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-                            <div className="bg-black/60 text-white text-xs px-6 py-2 rounded-full backdrop-blur-md border border-white/10 shadow-xl">
-                                <span className="font-bold text-green-400 mr-2">DETAILS VIEW</span>
-                                <span className="text-slate-300">Tolerance: <span className="text-white font-mono">{selectedFile.tolerance}</span></span>
-                            </div>
+                        {/* ★★★ 预览区域（移除阴影效果） ★★★ */}
+                        <div className="flex-1 flex items-center justify-center bg-gray-100 h-full">
+                            <div className="checkerboard opacity-20 w-full h-full absolute inset-0"></div>
+                            <img
+                                src={selectedFile.processedUrl}
+                                className="max-w-full max-h-full object-contain relative z-10"
+                                alt="Editing"
+                            />
                         </div>
 
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); setSelectedId(null); }}
-                            className="absolute top-6 right-6 z-50 w-12 h-12 bg-white/10 hover:bg-white/20 text-slate-800 hover:text-white rounded-full flex items-center justify-center transition backdrop-blur-md border border-slate-400 hover:border-white/10 cursor-pointer pointer-events-auto"
-                        >
-                            ✕
-                        </button>
+                        {/* ★★★ 悬浮编辑面板（右上角，更小尺寸） ★★★ */}
+                        <div className="absolute top-4 right-4 w-60 bg-slate-800/95 backdrop-blur-md border border-slate-700 rounded-2xl shadow-2xl flex flex-col max-h-[70vh] z-50">
+                            {/* 标题栏 */}
+                            <div className="p-3 border-b border-slate-700 flex items-center justify-between">
+                                <div>
+                                    <h3 className="text-white font-serif tracking-wider text-base">编辑素材</h3>
+                                </div>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setSelectedId(null); }}
+                                    className="w-7 h-7 bg-slate-700 hover:bg-slate-600 text-white rounded-lg flex items-center justify-center transition text-sm"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+
+                            {/* Tolerance 滑杆 */}
+                            <div className="p-3 border-b border-slate-700">
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-xs font-bold tracking-wide text-slate-300">
+                                        去背景强度
+                                    </span>
+                                    <span className="text-xs text-cyan-400 font-mono bg-cyan-900/30 px-2 rounded">
+                                        {Number(selectedFile.tolerance).toFixed(1)}
+                                    </span>
+                                </div>
+                                <div className="relative h-5 flex items-center select-none w-full">
+                                    <div className="absolute w-full h-1 bg-slate-600 rounded-lg top-1/2 -translate-y-1/2 left-0"></div>
+                                    <div
+                                        className="absolute h-1 bg-cyan-500 rounded-l-lg top-1/2 -translate-y-1/2 left-0 pointer-events-none"
+                                        style={{ width: `${(selectedFile.tolerance / 80) * 100}%` }}
+                                    ></div>
+                                    <input
+                                        type="range"
+                                        min="1" max="80" step="0.5"
+                                        value={selectedFile.tolerance}
+                                        onChange={handleSliderChange}
+                                        className="absolute w-full h-full opacity-100 z-20 cursor-pointer inset-0 m-0 p-0"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* 材质类型切换 */}
+                            <div className="p-3 border-b border-slate-700">
+                                <span className="text-xs font-bold tracking-wide text-slate-400 mb-2 block">
+                                    材质模式
+                                </span>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        type="button"
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            if (!selectedFile) return;
+                                            if (selectedFile.materialType === 'image') return;
+                                            switchToImageMaterial(selectedFile).then(updated => {
+                                                setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                            });
+                                        }}
+                                        onTouchStart={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            if (!selectedFile) return;
+                                            if (selectedFile.materialType === 'image') return;
+                                            switchToImageMaterial(selectedFile).then(updated => {
+                                                setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                            });
+                                        }}
+                                        style={{ pointerEvents: 'auto' }}
+                                        className={`px-3 py-2 rounded-lg text-xs font-medium transition border relative ${
+                                            selectedFile?.materialType === 'image'
+                                                ? 'bg-blue-600 border-blue-500 text-white shadow-lg'
+                                                : 'bg-transparent border-slate-600 text-slate-300 hover:border-blue-500'
+                                        }`}
+                                    >
+                                        📷 图像
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            if (!selectedFile) return;
+                                            if (selectedFile.materialType === 'solid-color') return;
+                                            const color = selectedFile.color || editingColor || generateRandomColor();
+                                            generateSolidColorMaterial(selectedFile, color).then(updated => {
+                                                setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                                setEditingColor(color);
+                                            });
+                                        }}
+                                        onTouchStart={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            if (!selectedFile) return;
+                                            if (selectedFile.materialType === 'solid-color') return;
+                                            const color = selectedFile.color || editingColor || generateRandomColor();
+                                            generateSolidColorMaterial(selectedFile, color).then(updated => {
+                                                setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                                setEditingColor(color);
+                                            });
+                                        }}
+                                        style={{ pointerEvents: 'auto' }}
+                                        className={`px-3 py-2 rounded-lg text-xs font-medium transition border relative ${
+                                            selectedFile?.materialType === 'solid-color'
+                                                ? 'bg-purple-600 border-purple-500 text-white shadow-lg'
+                                                : 'bg-transparent border-slate-600 text-slate-300 hover:border-purple-500'
+                                        }`}
+                                    >
+                                        🎨 纯色
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* 纯色材质控制面板 */}
+                            {selectedFile?.materialType === 'solid-color' && (
+                                <div className="flex-1 p-3 overflow-y-auto">
+                                    <div className="space-y-2 p-2 bg-slate-900/50 rounded-xl border border-slate-700">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-xs font-bold text-slate-300">颜色设置</span>
+                                            <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={useRandomColor}
+                                                    onChange={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        setUseRandomColor(e.target.checked);
+                                                    }}
+                                                    style={{ pointerEvents: 'auto' }}
+                                                    className="w-3 h-3 rounded border-slate-600 bg-slate-800 text-purple-600"
+                                                />
+                                                随机
+                                            </label>
+                                        </div>
+
+                                        {!useRandomColor ? (
+                                            <div className="space-y-2">
+                                                <input
+                                                    type="color"
+                                                    value={selectedFile.color || editingColor}
+                                                    onChange={(e) => {
+                                                        e.stopPropagation();
+                                                        const newColor = e.target.value;
+                                                        generateSolidColorMaterial(selectedFile, newColor).then(updated => {
+                                                            setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                                            setEditingColor(newColor);
+                                                        });
+                                                    }}
+                                                    style={{ pointerEvents: 'auto' }}
+                                                    className="w-full h-10 rounded border border-slate-600 cursor-pointer"
+                                                />
+                                                <div className="text-xs text-slate-400">
+                                                    {selectedFile.color || editingColor}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    const newColor = generateRandomColor();
+                                                    generateSolidColorMaterial(selectedFile, newColor).then(updated => {
+                                                        setFiles(prev => prev.map(f => f.id === selectedId ? updated : f));
+                                                        setEditingColor(newColor);
+                                                    });
+                                                }}
+                                                style={{ pointerEvents: 'auto' }}
+                                                className="w-full px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-xs font-medium transition"
+                                            >
+                                                🎲 随机颜色
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 ) : (
                     <div className="relative w-full h-full flex items-center justify-center bg-black">
@@ -411,7 +659,57 @@ function App() {
             </div>
             
             <input type="file" multiple accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-            <input type="file" accept="audio/*" ref={audioInputRef} onChange={handleAudioUpload} className="hidden" />
+
+            {/* ★★★ 下载命名面板 ★★★ */}
+            {showDownloadDialog && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999]" onClick={() => setShowDownloadDialog(false)}>
+                    <div className="bg-slate-800 rounded-2xl p-6 w-96 border border-slate-700 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <h3 className="text-white font-serif text-lg mb-4">命名下载文件</h3>
+                        <input
+                            type="text"
+                            value={zipFileName}
+                            onChange={(e) => {
+                                setZipFileName(e.target.value);
+                                if (e.target.value.trim()) {
+                                    setZipNameError('');
+                                }
+                            }}
+                            placeholder="输入文件名"
+                            className={`w-full px-4 py-3 bg-slate-700 border rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 ${zipNameError ? 'border-red-500' : 'border-slate-600'}`}
+                            autoFocus
+                        />
+                        {zipNameError && (
+                            <p className="text-red-400 text-sm mt-2">{zipNameError}</p>
+                        )}
+                        <div className="flex gap-3 mt-6">
+                            <button
+                                onClick={() => {
+                                    const trimmedName = zipFileName.trim();
+                                    if (!trimmedName) {
+                                        setZipNameError('请输入至少一个字符');
+                                        return;
+                                    }
+                                    downloadZip(trimmedName);
+                                    setShowDownloadDialog(false);
+                                    setZipNameError('');
+                                }}
+                                className="flex-1 py-3 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-lg font-medium transition"
+                            >
+                                确认下载
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setShowDownloadDialog(false);
+                                    setZipNameError('');
+                                }}
+                                className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition"
+                            >
+                                取消
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

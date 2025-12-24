@@ -33,7 +33,7 @@ function App() {
     // ★★★ 监听下载对话框状态，重置表单 ★★★
     useEffect(() => {
         if (showDownloadDialog) {
-            setZipFileName('papercut_assets');
+            setZipFileName('');
             setZipNameError('');
         }
     }, [showDownloadDialog]);

@@ -8,7 +8,7 @@ import loveMusic from '../public/love.mp3?url';
 
 function App() {
     const [files, setFiles] = useState([]);
-    const [defaultTolerance, setDefaultTolerance] = useState(38); // ★★★ 修改：默认去背景强度改为38 ★★★
+    const [defaultTolerance, setDefaultTolerance] = useState(13); // ★★★ 修改：默认去背景强度改为13 ★★★
     const [selectedId, setSelectedId] = useState(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [isZipping, setIsZipping] = useState(false);
@@ -19,7 +19,10 @@ function App() {
 
     // ★★★ 吸管工具状态 ★★★
     const [eyedropperActive, setEyedropperActive] = useState(false); // 是否启用吸管工具
-    const [backgroundColor, setBackgroundColor] = useState(null); // 选定的背景色
+    const [backgroundColor, setBackgroundColor] = useState(null); // 全局选定的背景色（拍摄页面使用）
+    const [cursorColorPreview, setCursorColorPreview] = useState(null); // 光标处颜色预览
+    const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 }); // 光标位置
+    const [detailBackgroundColor, setDetailBackgroundColor] = useState(null); // 详情页面本地背景色（不影响全局）
 
     // ★★★ 新增：纯色材质编辑状态（仅在详情页使用） ★★★
     const [editingColor, setEditingColor] = useState('#ff6b9d');
@@ -83,8 +86,19 @@ function App() {
         }
     };
     useEffect(() => {
-        if (viewMode === 'capture' && !loading) startCamera();
-        else stopCamera();
+        if (viewMode === 'capture' && !loading) {
+            startCamera();
+            // 切换到拍摄模式时清除缓存
+            if (colorPickerCanvasRef.current) {
+                colorPickerCanvasRef.current = null;
+            }
+            setCursorColorPreview(null);
+            setCursorPosition({ x: 0, y: 0 });
+            setDetailBackgroundColor(null); // 清除详情页面背景色
+        }
+        else {
+            stopCamera();
+        }
         return () => stopCamera();
     }, [viewMode, loading]);
     
@@ -172,7 +186,8 @@ function App() {
         const processCanvas = document.createElement('canvas');
         processCanvas.width = 512; processCanvas.height = 512;
         processCanvas.getContext('2d').drawImage(rawSquareCanvas, 0, 0);
-        const finalCanvas = removeBackground(processCanvas, defaultTolerance, bgColor);
+        // ★★★ 如果没有传递 bgColor，使用当前选择的背景色 ★★★
+        const finalCanvas = removeBackground(processCanvas, defaultTolerance, bgColor || backgroundColor);
 
         finalCanvas.toBlob(blob => {
             const newFile = {
@@ -184,46 +199,82 @@ function App() {
                 tolerance: defaultTolerance,
                 materialType: 'image', // ★★★ 默认为图像材质 ★★★
                 status: 'done',
-                backgroundColor: bgColor || null // ★★★ 保存背景色信息 ★★★
+                backgroundColor: bgColor || backgroundColor || null // ★★★ 保存背景色信息 ★★★
             };
             setFiles(prev => [...prev, newFile]);
         }, 'image/png');
-    }, [defaultTolerance]); // ★★★ 移除依赖项，简化逻辑 ★★★
+    }, [defaultTolerance, backgroundColor]); // 添加 backgroundColor 依赖
 
     // ★★★ 从视频中提取颜色值 ★★★
-    const extractColorFromVideo = useCallback((e) => {
+    const extractColorFromVideo = useCallback((e, isPreview = false) => {
         if (!videoRef.current || !eyedropperActive) return;
 
         const video = videoRef.current;
-        const canvas = colorPickerCanvasRef.current;
-        if (!canvas) {
-            // 创建隐藏画布
-            colorPickerCanvasRef.current = document.createElement('canvas');
-            colorPickerCanvasRef.current.width = video.videoWidth;
-            colorPickerCanvasRef.current.height = video.videoHeight;
-        }
 
-        const pickerCanvas = colorPickerCanvasRef.current;
-        const ctx = pickerCanvas.getContext('2d');
+        // 每次都创建新的canvas，确保获取最新帧
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
         ctx.drawImage(video, 0, 0);
 
-        // 获取点击位置
-        const rect = video.getBoundingClientRect();
-        const x = Math.floor((e.clientX - rect.left) / rect.width * pickerCanvas.width);
-        const y = Math.floor((e.clientY - rect.top) / rect.height * pickerCanvas.height);
+        // 获取光标位置（相对于当前事件目标元素）
+        const rect = e.currentTarget.getBoundingClientRect();
+        const relativeX = (e.clientX - rect.left) / rect.width;
+        const relativeY = (e.clientY - rect.top) / rect.height;
+
+        // 计算中央正方形区域在video中的实际位置
+        const videoWidth = canvas.width;
+        const videoHeight = canvas.height;
+        const videoAspectRatio = videoWidth / videoHeight;
+
+        let squareX, squareY, squareSize;
+
+        if (videoAspectRatio > 1) {
+            // 横向视频：正方形区域垂直居中
+            squareSize = videoHeight;
+            squareX = (videoWidth - squareSize) / 2;
+            squareY = 0;
+        } else {
+            // 竖向视频：正方形区域水平居中
+            squareSize = videoWidth;
+            squareX = 0;
+            squareY = (videoHeight - squareSize) / 2;
+        }
+
+        // 检查光标是否在中央正方形区域内
+        if (relativeX < 0 || relativeX > 1 || relativeY < 0 || relativeY > 1) {
+            return; // 光标在正方形区域外，不取色
+        }
+
+        // 将正方形区域内的坐标转换为video中的实际像素坐标
+        const x = Math.floor(squareX + relativeX * squareSize);
+        const y = Math.floor(squareY + relativeY * squareSize);
+
+        // 确保坐标在有效范围内
+        const finalX = Math.max(0, Math.min(x, videoWidth - 1));
+        const finalY = Math.max(0, Math.min(y, videoHeight - 1));
 
         // 获取像素颜色
-        const imageData = ctx.getImageData(x, y, 1, 1);
+        const imageData = ctx.getImageData(finalX, finalY, 1, 1);
         const pixelData = imageData.data;
 
-        setBackgroundColor({
+        const color = {
             r: pixelData[0],
             g: pixelData[1],
             b: pixelData[2]
-        });
+        };
 
-        // 退出吸管工具模式
-        setEyedropperActive(false);
+        if (isPreview) {
+            // 实时预览模式，只更新预览颜色
+            setCursorColorPreview(color);
+        } else {
+            // 点击确认模式，设置背景色并退出吸管工具
+            setBackgroundColor(color);
+            setEyedropperActive(false);
+            setCursorColorPreview(null);
+            setCursorPosition({ x: 0, y: 0 });
+        }
     }, [eyedropperActive]);
 
     // ★★★ 从详情页图像中提取颜色值 ★★★
@@ -268,7 +319,7 @@ function App() {
                 b: pixelData[2]
             };
 
-            setBackgroundColor(newBgColor);
+            setDetailBackgroundColor(newBgColor); // 使用本地状态，不影响全局
 
             // ★★★ 立即使用新背景色重新处理图像并显示效果 ★★★
             const originalImg = new Image();
@@ -295,20 +346,22 @@ function App() {
 
             // 退出吸管工具模式
             setEyedropperActive(false);
+            setCursorColorPreview(null);
         };
-        img.src = files.find(f => f.id === selectedId)?.processedUrl;
+        img.src = files.find(f => f.id === selectedId)?.originalUrl; // 使用原始图像取色
     }, [eyedropperActive, selectedId, files]); // 移除 selectedFile，添加 files
 
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.code === 'Space' && viewMode === 'capture' && cameraActive) {
-                e.preventDefault(); 
-                captureAndProcess();
+                e.preventDefault();
+                // ★★★ 使用当前选择的背景色 ★★★
+                captureAndProcess(backgroundColor);
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [viewMode, cameraActive, captureAndProcess]);
+    }, [viewMode, cameraActive, captureAndProcess, backgroundColor]);
 
     const handleFileUpload = async (e) => {
         const selectedFiles = Array.from(e.target.files);
@@ -360,8 +413,8 @@ function App() {
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0);
 
-                // 创建 alpha 遮罩
-                const maskCanvas = removeBackground(canvas, fileObj.tolerance);
+                // ★★★ 创建 alpha 遮罩（使用背景色） ★★★
+                const maskCanvas = removeBackground(canvas, fileObj.tolerance, fileObj.backgroundColor);
 
                 // 生成纯色
                 const colorCanvas = document.createElement('canvas');
@@ -547,12 +600,28 @@ function App() {
                         className="relative w-full h-full flex items-center justify-center"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        {/* ★★★ 预览区域（移除阴影效果） ★★★ */}
-                        <div className={`flex-1 flex items-center justify-center bg-gray-100 h-full ${eyedropperActive ? 'cursor-crosshair' : ''}`}>
-                            <div className="checkerboard opacity-20 w-full h-full absolute inset-0"></div>
+                        {/* ★★★ 预览区域（棋盘格透明背景，图像外黑色） ★★★ */}
+                        <div className="relative flex-1 flex items-center justify-center h-full">
+                            {/* 图像外黑色背景 */}
+                            <div className="absolute inset-0 bg-black"></div>
+                            {/* 棋盘格透明背景 */}
+                            <div className="checkerboard opacity-75 w-full h-full absolute inset-0"></div>
+
+                            {/* 返回拍摄按钮 */}
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedId(null);
+                                }}
+                                className="absolute top-4 left-4 z-40 px-3 py-2 bg-slate-800/90 backdrop-blur-sm hover:bg-slate-700/90 text-white text-xs font-medium rounded-lg border border-slate-600 transition-all flex items-center gap-2"
+                            >
+                                ← 返回拍摄
+                            </button>
+
+                            {/* 图像 - 吸管工具激活时显示原始图像，否则显示处理后图像 */}
                             <img
-                                src={selectedFile.processedUrl}
-                                className="max-w-full max-h-full object-contain relative z-10"
+                                src={eyedropperActive ? selectedFile.originalUrl : selectedFile.processedUrl}
+                                className={`max-w-full max-h-full object-contain relative z-10 ${eyedropperActive ? 'cursor-crosshair' : ''}`}
                                 alt="Editing"
                                 onClick={(e) => {
                                     e.stopPropagation();
@@ -560,78 +629,82 @@ function App() {
                                         extractColorFromImage(e);
                                     }
                                 }}
+                                onMouseMove={(e) => {
+                                    if (eyedropperActive) {
+                                        // 使用绝对坐标（屏幕坐标）来定位预览色彩方块
+                                        const absoluteX = e.clientX;
+                                        const absoluteY = e.clientY;
+
+                                        // 检查鼠标是否在图像范围内（使用原始图像进行检测）
+                                        const img = e.currentTarget;
+                                        const rect = img.getBoundingClientRect();
+                                        const relativeX = (e.clientX - rect.left) / rect.width;
+                                        const relativeY = (e.clientY - rect.top) / rect.height;
+
+                                        if (relativeX >= 0 && relativeX <= 1 && relativeY >= 0 && relativeY <= 1) {
+                                            // 将绝对坐标转换为预览区域的相对位置（百分比）
+                                            const previewRect = e.currentTarget.parentElement.getBoundingClientRect();
+                                            const previewX = ((e.clientX - previewRect.left) / previewRect.width) * 100;
+                                            const previewY = ((e.clientY - previewRect.top) / previewRect.height) * 100;
+                                            setCursorPosition({ x: previewX, y: previewY });
+
+                                            // 实时预览颜色（使用原始图像）
+                                            const pixelX = Math.max(0, Math.min(Math.floor(relativeX * 512), 511));
+                                            const pixelY = Math.max(0, Math.min(Math.floor(relativeY * 512), 511));
+
+                                            const canvas = colorPickerCanvasRef.current;
+                                            if (!canvas) {
+                                                colorPickerCanvasRef.current = document.createElement('canvas');
+                                            }
+                                            const pickerCanvas = colorPickerCanvasRef.current;
+                                            pickerCanvas.width = 512;
+                                            pickerCanvas.height = 512;
+                                            const ctx = pickerCanvas.getContext('2d');
+                                            const image = new Image();
+                                            image.onload = () => {
+                                                ctx.drawImage(image, 0, 0);
+                                                const imageData = ctx.getImageData(pixelX, pixelY, 1, 1);
+                                                const pixelData = imageData.data;
+                                                setCursorColorPreview({
+                                                    r: pixelData[0],
+                                                    g: pixelData[1],
+                                                    b: pixelData[2]
+                                                });
+                                            };
+                                            image.src = selectedFile.originalUrl; // 使用原始图像取色
+                                        } else {
+                                            // 鼠标在图像外，清除预览
+                                            setCursorColorPreview(null);
+                                        }
+                                    }
+                                }}
                             />
 
-                            {/* 背景色显示 - 可点击的吸管工具（详情页） */}
-                            {selectedFile?.materialType === 'image' && (
+                            {/* 颜色预览（详情页） - 跟随绝对坐标，提高层级 */}
+                            {eyedropperActive && cursorColorPreview && (
                                 <div
-                                    className={`absolute top-4 left-4 z-40 cursor-pointer transition-all ${
-                                        eyedropperActive ? 'scale-110' : ''
-                                    }`}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setEyedropperActive(!eyedropperActive);
+                                    className="absolute w-[15px] h-[15px] border border-white pointer-events-none z-50"
+                                    style={{
+                                        backgroundColor: `rgb(${cursorColorPreview.r}, ${cursorColorPreview.g}, ${cursorColorPreview.b})`,
+                                        top: `${cursorPosition.y}%`,
+                                        left: `${cursorPosition.x}%`,
+                                        transform: 'translate(calc(-50% + 9px), calc(-50% - 8px))'
                                     }}
-                                >
-                                    <div
-                                        className={`bg-slate-800/90 backdrop-blur-sm px-3 py-2 rounded-lg border-2 flex items-center gap-3 ${
-                                            eyedropperActive
-                                                ? 'border-yellow-400 shadow-lg shadow-yellow-900/50'
-                                                : 'border-slate-700 hover:border-slate-600'
-                                        }`}
-                                    >
-                                        {/* 背景色色块 */}
-                                        <div
-                                            className="w-8 h-8 rounded border-2 border-white/50 relative overflow-hidden"
-                                            style={{
-                                                backgroundColor: backgroundColor || selectedFile.backgroundColor
-                                                    ? `rgb(${backgroundColor?.r || selectedFile.backgroundColor?.r}, ${backgroundColor?.g || selectedFile.backgroundColor?.g}, ${backgroundColor?.b || selectedFile.backgroundColor?.b})`
-                                                    : '#ffffff'
-                                            }}
-                                        >
-                                            {/* 吸管图标 */}
-                                            <span className={`absolute inset-0 flex items-center justify-center text-white text-sm transition-opacity ${
-                                                eyedropperActive ? 'opacity-100' : 'opacity-70'
-                                            }`}>
-
-                                            </span>
-                                        </div>
-                                        {/* RGB值 */}
-                                        <div>
-                                            {(backgroundColor || selectedFile.backgroundColor) ? (
-                                                <div className="flex flex-col">
-                                                    <span className="text-white text-xs font-medium">
-                                                        RGB({backgroundColor?.r || selectedFile.backgroundColor?.r}, {backgroundColor?.g || selectedFile.backgroundColor?.g}, {backgroundColor?.b || selectedFile.backgroundColor?.b})
-                                                    </span>
-                                                    <span className="text-slate-400 text-xs">
-                                                        {eyedropperActive ? '点击选择背景色' : '点击切换吸管工具'}
-                                                    </span>
-                                                </div>
-                                            ) : (
-                                                <div className="flex flex-col">
-                                                    <span className="text-white text-xs font-medium">
-                                                        未选择
-                                                    </span>
-                                                    <span className="text-slate-400 text-xs">
-                                                        {eyedropperActive ? '点击选择背景色' : '点击启用吸管工具'}
-                                                    </span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
+                                />
                             )}
 
-                            {/* 吸管工具提示 */}
+                            {/* 移除详情页左上角的独立吸管工具面板 - 已整合到编辑面板中 */}
+
+                            {/* 吸管工具提示（移到区域外） */}
                             {eyedropperActive && (
-                                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 text-white/90 text-xs font-mono tracking-widest pointer-events-none bg-black/50 px-4 py-2 rounded-lg">
+                                <div className="absolute bottom-[-2.5rem] left-1/2 -translate-x-1/2 text-white/90 text-xs font-mono tracking-widest pointer-events-none bg-black/50 px-3 py-1.5 rounded-lg whitespace-nowrap">
                                     CLICK TO SELECT BACKGROUND COLOR
                                 </div>
                             )}
                         </div>
 
                         {/* ★★★ 悬浮编辑面板（右上角，更小尺寸） ★★★ */}
-                        <div className="absolute top-4 right-4 w-60 bg-slate-800/95 backdrop-blur-md border border-slate-700 rounded-2xl shadow-2xl flex flex-col max-h-[70vh] z-50">
+                        <div className="absolute top-4 right-4 w-56 bg-slate-800/95 backdrop-blur-md border border-slate-700 rounded-2xl shadow-2xl flex flex-col max-h-[70vh] z-50">
                             {/* 标题栏 */}
                             <div className="p-3 border-b border-slate-700 flex items-center justify-between">
                                 <div>
@@ -646,7 +719,7 @@ function App() {
                             </div>
 
                             {/* Tolerance 滑杆 */}
-                            <div className="p-3 border-b border-slate-700">
+                            <div className="p-2.5 border-b border-slate-700">
                                 <div className="flex justify-between items-center mb-2">
                                     <span className="text-xs font-bold tracking-wide text-slate-300">
                                         去背景强度
@@ -671,8 +744,75 @@ function App() {
                                 </div>
                             </div>
 
+                            {/* 背景色吸管工具（整合到编辑面板） */}
+                            {selectedFile?.materialType === 'image' && (
+                                <div className="p-2.5 border-b border-slate-700">
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex-1">
+                                            <button
+                                                type="button"
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    const newState = !eyedropperActive;
+                                                    setEyedropperActive(newState);
+                                                    if (newState) {
+                                                        // 激活吸管工具时清除缓存
+                                                        if (colorPickerCanvasRef.current) {
+                                                            colorPickerCanvasRef.current = null;
+                                                        }
+                                                        setCursorColorPreview(null);
+                                                        setCursorPosition({ x: 0, y: 0 });
+                                                    } else {
+                                                        // 关闭吸管工具时清除预览
+                                                        setCursorColorPreview(null);
+                                                        setCursorPosition({ x: 0, y: 0 });
+                                                    }
+                                                }}
+                                                onTouchStart={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    const newState = !eyedropperActive;
+                                                    setEyedropperActive(newState);
+                                                    if (newState) {
+                                                        // 激活吸管工具时清除缓存
+                                                        if (colorPickerCanvasRef.current) {
+                                                            colorPickerCanvasRef.current = null;
+                                                        }
+                                                        setCursorColorPreview(null);
+                                                        setCursorPosition({ x: 0, y: 0 });
+                                                    } else {
+                                                        // 关闭吸管工具时清除预览
+                                                        setCursorColorPreview(null);
+                                                        setCursorPosition({ x: 0, y: 0 });
+                                                    }
+                                                }}
+                                                style={{ pointerEvents: 'auto' }}
+                                                className={`w-full px-3 py-2 rounded-lg text-xs font-medium transition border relative ${
+                                                    eyedropperActive
+                                                        ? 'bg-yellow-600 border-yellow-500 text-white shadow-lg'
+                                                        : 'bg-slate-700 border-slate-600 text-slate-300 hover:border-yellow-500'
+                                                }`}
+                                            >
+                                                {eyedropperActive ? '点击图像选择' : '设置背景色'}
+                                            </button>
+                                        </div>
+                                        {/* 背景色色块 */}
+                                        <div
+                                            className="w-10 h-10 rounded border-2 border-white/50 relative overflow-hidden flex-shrink-0"
+                                            style={{
+                                                backgroundColor: detailBackgroundColor || selectedFile.backgroundColor
+                                                    ? `rgb(${detailBackgroundColor?.r || selectedFile.backgroundColor?.r}, ${detailBackgroundColor?.g || selectedFile.backgroundColor?.g}, ${detailBackgroundColor?.b || selectedFile.backgroundColor?.b})`
+                                                    : '#ffffff'
+                                            }}
+                                        >
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* 材质类型切换 */}
-                            <div className="p-3 border-b border-slate-700">
+                            <div className="p-2.5 border-b border-slate-700">
                                 <span className="text-xs font-bold tracking-wide text-slate-400 mb-2 block">
                                     材质模式
                                 </span>
@@ -810,78 +950,42 @@ function App() {
                 ) : (
                     <div className="relative w-full h-full flex items-center justify-center bg-black">
                         <div
-                            className={`relative w-full h-full flex items-center justify-center overflow-hidden ${eyedropperActive ? 'cursor-crosshair' : ''}`}
-                            style={{ aspectRatio: videoAspectRatio }}
+                            className={`relative flex items-center justify-center overflow-hidden ${eyedropperActive ? 'cursor-crosshair' : ''}`}
+                            style={{
+                                aspectRatio: '1/1',
+                                height: '75%',
+                                width: 'auto'
+                            }}
                         >
                             <video ref={videoRef} autoPlay playsInline muted onLoadedMetadata={handleVideoMetadata} className="w-full h-full object-cover opacity-80" />
 
-                            {/* 背景色显示 - 可点击的吸管工具 */}
+                            {/* 中央方形区域 - 移除原来的吸管工具面板 */}
                             <div
-                                className={`absolute top-4 left-4 z-40 cursor-pointer transition-all ${
-                                    eyedropperActive ? 'scale-110' : ''
-                                }`}
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setEyedropperActive(!eyedropperActive);
-                                }}
-                            >
-                                <div
-                                    className={`bg-slate-800/90 backdrop-blur-sm px-3 py-2 rounded-lg border-2 flex items-center gap-3 ${
-                                        eyedropperActive
-                                            ? 'border-yellow-400 shadow-lg shadow-yellow-900/50'
-                                            : 'border-slate-700 hover:border-slate-600'
-                                    }`}
-                                >
-                                    {/* 背景色色块 */}
-                                    <div
-                                        className="w-8 h-8 rounded border-2 border-white/50 relative overflow-hidden"
-                                        style={{
-                                            backgroundColor: backgroundColor
-                                                ? `rgb(${backgroundColor.r}, ${backgroundColor.g}, ${backgroundColor.b})`
-                                                : '#ffffff'
-                                        }}
-                                    >
-                                        {/* 吸管图标 */}
-                                        <span className={`absolute inset-0 flex items-center justify-center text-white text-sm transition-opacity ${
-                                            eyedropperActive ? 'opacity-100' : 'opacity-70'
-                                        }`}>
-                                           
-                                        </span>
-                                    </div>
-                                    {/* RGB值 */}
-                                    <div>
-                                        {backgroundColor ? (
-                                            <div className="flex flex-col">
-                                                <span className="text-white text-xs font-medium">
-                                                    RGB({backgroundColor.r}, {backgroundColor.g}, {backgroundColor.b})
-                                                </span>
-                                                <span className="text-slate-400 text-xs">
-                                                    {eyedropperActive ? '点击选择背景色' : '点击切换吸管工具'}
-                                                </span>
-                                            </div>
-                                        ) : (
-                                            <div className="flex flex-col">
-                                                <span className="text-white text-xs font-medium">
-                                                    未选择
-                                                </span>
-                                                <span className="text-slate-400 text-xs">
-                                                    {eyedropperActive ? '点击选择背景色' : '点击启用吸管工具'}
-                                                </span>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div
-                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 border border-white/30 shadow-[0_0_0_9999px_rgba(0,0,0,0.85)] cursor-crosshair transition-all duration-300 z-20"
-                                style={{ aspectRatio: '1/1', height: videoAspectRatio > 1 ? '80%' : 'auto', width: videoAspectRatio > 1 ? 'auto' : '80%' }}
+                                className={`absolute inset-0 border border-white/30 shadow-[0_0_0_9999px_rgba(0,0,0,0.85)] ${eyedropperActive ? 'cursor-crosshair' : 'cursor-pointer'} transition-all duration-300 z-20`}
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     if (eyedropperActive) {
-                                        extractColorFromVideo(e);
+                                        extractColorFromVideo(e, false);
                                     } else if (cameraActive && !isProcessing) {
                                         captureAndProcess(backgroundColor);
+                                    }
+                                }}
+                                onMouseMove={(e) => {
+                                    if (eyedropperActive) {
+                                        // 记录光标位置（相对于当前元素）
+                                        const rect = e.currentTarget.getBoundingClientRect();
+                                        const x = ((e.clientX - rect.left) / rect.width) * 100;
+                                        const y = ((e.clientY - rect.top) / rect.height) * 100;
+
+                                        // 检查光标是否在中央正方形区域内
+                                        if (x >= 0 && x <= 100 && y >= 0 && y <= 100) {
+                                            setCursorPosition({ x, y });
+                                            // 立即提取颜色，确保位置一致
+                                            extractColorFromVideo(e, true);
+                                        } else {
+                                            // 光标在正方形区域外，清除预览
+                                            setCursorColorPreview(null);
+                                        }
                                     }
                                 }}
                             >
@@ -890,14 +994,122 @@ function App() {
                                 <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-white"></div>
                                 <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-white"></div>
                                 <div className={`absolute inset-0 bg-white transition-opacity duration-100 ease-out ${flashEffect ? 'opacity-80' : 'opacity-0'}`}></div>
+
+                                {/* 颜色预览 - 位置调整：向上2像素，向左1像素 */}
+                                {eyedropperActive && cursorColorPreview && (
+                                    <div
+                                        className="absolute w-[15px] h-[15px] border border-white pointer-events-none"
+                                        style={{
+                                            backgroundColor: `rgb(${cursorColorPreview.r}, ${cursorColorPreview.g}, ${cursorColorPreview.b})`,
+                                            top: `${cursorPosition.y}%`,
+                                            left: `${cursorPosition.x}%`,
+                                            transform: 'translate(calc(-50% + 9px), calc(-50% - 8px))'
+                                        }}
+                                    />
+                                )}
                             </div>
                             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[2px] h-full bg-red-400/100"></div>
 
-                            <div className="absolute bottom-10 left-1/2 -translate-x-1/2 text-white/50 text-xs font-mono tracking-widest pointer-events-none">
+                            <div className="absolute bottom-[-2.5rem] left-1/2 -translate-x-1/2 text-white/70 text-xs font-mono tracking-widest pointer-events-none whitespace-nowrap">
                                 {eyedropperActive
                                     ? "CLICK TO SELECT BACKGROUND COLOR"
                                     : (cameraActive ? "CLICK ANYWHERE TO CAPTURE" : "CAMERA OFFLINE")
                                 }
+                            </div>
+                        </div>
+
+                        {/* ★★★ 拍摄界面控制面板（移到区域外） ★★★ */}
+                        <div className="absolute top-2 left-2 z-40 flex flex-col gap-2">
+                            {/* 吸管工具面板 */}
+                            <div
+                                className={`cursor-pointer transition-all ${eyedropperActive ? 'scale-110' : ''}`}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    const newState = !eyedropperActive;
+                                    setEyedropperActive(newState);
+                                    if (newState) {
+                                        // 激活吸管工具时清除缓存
+                                        if (colorPickerCanvasRef.current) {
+                                            colorPickerCanvasRef.current = null;
+                                        }
+                                        setCursorColorPreview(null);
+                                        setCursorPosition({ x: 0, y: 0 });
+                                    } else {
+                                        // 关闭吸管工具时清除预览
+                                        setCursorColorPreview(null);
+                                        setCursorPosition({ x: 0, y: 0 });
+                                    }
+                                }}
+                            >
+                                <div
+                                    className={`bg-slate-800/90 backdrop-blur-sm px-2 py-1.5 rounded-lg border-2 flex items-center gap-2 ${
+                                        eyedropperActive
+                                            ? 'border-yellow-400 shadow-lg shadow-yellow-900/50'
+                                            : 'border-slate-700 hover:border-slate-600'
+                                    }`}
+                                >
+                                    {/* 背景色色块 */}
+                                    <div
+                                        className="w-6 h-6 rounded border border-white/50 relative overflow-hidden"
+                                        style={{
+                                            backgroundColor: backgroundColor
+                                                ? `rgb(${backgroundColor.r}, ${backgroundColor.g}, ${backgroundColor.b})`
+                                                : '#ffffff'
+                                        }}
+                                    >
+                                    </div>
+                                    {/* RGB值和标题 */}
+                                    <div>
+                                        <span className="text-white text-[10px] font-medium block">
+                                            设置背景色
+                                        </span>
+                                        {backgroundColor ? (
+                                            <div className="flex flex-col">
+                                                <span className="text-white text-[10px] font-medium">
+                                                    {backgroundColor.r}, {backgroundColor.g}, {backgroundColor.b}
+                                                </span>
+                                                <span className="text-slate-400 text-[9px]">
+                                                    {eyedropperActive ? '点击选择' : '点击切换'}
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-col">
+                                                <span className="text-white text-[10px] font-medium">
+                                                    未选择
+                                                </span>
+                                                <span className="text-slate-400 text-[9px]">
+                                                    {eyedropperActive ? '点击选择' : '点击启用'}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 去背景强度滑杆 */}
+                            <div className="bg-slate-800/90 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-slate-700">
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className="text-white text-[10px] font-medium">
+                                        去背景强度
+                                    </span>
+                                    <span className="text-cyan-400 text-[10px] font-mono bg-cyan-900/30 px-1.5 rounded">
+                                        {Number(defaultTolerance).toFixed(1)}
+                                    </span>
+                                </div>
+                                <div className="relative h-4 flex items-center select-none w-40">
+                                    <div className="absolute w-full h-1 bg-slate-600 rounded-lg top-1/2 -translate-y-1/2 left-0"></div>
+                                    <div
+                                        className="absolute h-1 bg-cyan-500 rounded-l-lg top-1/2 -translate-y-1/2 left-0 pointer-events-none"
+                                        style={{ width: `${(defaultTolerance / 80) * 100}%` }}
+                                    ></div>
+                                    <input
+                                        type="range"
+                                        min="1" max="80" step="0.5"
+                                        value={defaultTolerance}
+                                        onChange={handleSliderChange}
+                                        className="absolute w-full h-full opacity-0 z-20 cursor-pointer inset-0 m-0 p-0"
+                                    />
+                                </div>
                             </div>
                         </div>
 

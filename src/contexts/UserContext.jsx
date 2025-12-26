@@ -49,13 +49,14 @@ export const UserProvider = ({ children }) => {
     }, []);
 
     // 注册新用户
-    const registerUser = useCallback((username, preferences = {}) => {
+    const registerUser = useCallback((username, role = 'student', preferences = {}) => {
         const allUsers = JSON.parse(localStorage.getItem('papercut_all_users') || '[]');
         const userId = generateUserId();
 
         const newUser = {
             id: userId,
             username: username || generateRandomUsername(),
+            role: role, // 'teacher' 或 'student'
             createdAt: new Date().toISOString(),
             preferences: {
                 defaultTolerance: 13,

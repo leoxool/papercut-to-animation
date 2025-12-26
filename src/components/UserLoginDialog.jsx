@@ -6,6 +6,7 @@ const UserLoginDialog = ({ onClose }) => {
     const [mode, setMode] = useState('login'); // 'login' or 'register'
     const [username, setUsername] = useState('');
     const [selectedUserId, setSelectedUserId] = useState('');
+    const [userRole, setUserRole] = useState('student'); // 'teacher' or 'student'
     const [error, setError] = useState('');
     const [showDeleteConfirm, setShowDeleteConfirm] = useState('');
 
@@ -20,7 +21,7 @@ const UserLoginDialog = ({ onClose }) => {
             return;
         }
 
-        const newUser = registerUser(username);
+        const newUser = registerUser(username, userRole);
         if (newUser) {
             onClose();
         } else {
@@ -156,6 +157,39 @@ const UserLoginDialog = ({ onClose }) => {
                             <p className="text-xs text-slate-400 mt-1">
                                 留空将自动生成用户名
                             </p>
+                        </div>
+
+                        {/* 角色选择 */}
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium text-slate-300 mb-2">
+                                用户角色
+                            </label>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setUserRole('student')}
+                                    className={`px-4 py-3 rounded-lg border transition ${
+                                        userRole === 'student'
+                                            ? 'border-cyan-500 bg-cyan-900/20 text-cyan-300'
+                                            : 'border-slate-600 bg-slate-700 text-slate-300 hover:border-slate-500'
+                                    }`}
+                                >
+                                    <div className="font-bold">学生</div>
+                                    <div className="text-xs opacity-75">采集和提交素材</div>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setUserRole('teacher')}
+                                    className={`px-4 py-3 rounded-lg border transition ${
+                                        userRole === 'teacher'
+                                            ? 'border-cyan-500 bg-cyan-900/20 text-cyan-300'
+                                            : 'border-slate-600 bg-slate-700 text-slate-300 hover:border-slate-500'
+                                    }`}
+                                >
+                                    <div className="font-bold">教师</div>
+                                    <div className="text-xs opacity-75">创建和管理教室</div>
+                                </button>
+                            </div>
                         </div>
 
                         {error && (

@@ -6,6 +6,8 @@ import UserLoginDialog from './components/UserLoginDialog';
 import UserSettingsDialog from './components/UserSettingsDialog';
 import CreateProjectDialog from './components/CreateProjectDialog';
 import ProjectManager from './components/ProjectManager';
+import TeacherDashboard from './components/Teacher/TeacherDashboard';
+import StudentDashboard from './components/Student/StudentDashboard';
 import { useUser } from './contexts/UserContext';
 import { useProject } from './contexts/ProjectContext';
 import { removeBackground, getSquareCanvas512 } from './utils/imageProcessing';
@@ -549,6 +551,26 @@ function App() {
 
     if (loading) {
         return <LoadingScreen progress={Math.round(progress)} />;
+    }
+
+    // ★★★ 教室协作模式：根据用户角色显示不同界面 ★★★
+    if (isLoggedIn && currentUser?.role) {
+        if (currentUser.role === 'teacher') {
+            return (
+                <TeacherDashboard
+                    files={files}
+                    onCapture={captureAndProcess}
+                />
+            );
+        } else if (currentUser.role === 'student') {
+            return (
+                <StudentDashboard
+                    files={files}
+                    onCapture={captureAndProcess}
+                    onSubmit={() => {}}
+                />
+            );
+        }
     }
 
     if (viewMode === 'gallery') {

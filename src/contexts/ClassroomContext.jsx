@@ -26,7 +26,12 @@ export const ClassroomProvider = ({ children, currentUser, currentProject }) => 
     useEffect(() => {
         if (!currentUser || !currentProject) return;
 
-        const websocketUrl = `ws://localhost:8080/ws/${currentProject.id}/${currentUser.id}`;
+        // 动态获取 WebSocket URL
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.hostname;
+        const websocketUrl = `${protocol}//${host}:8080/ws/${currentProject.id}/${currentUser.id}`;
+        console.log('Connecting to WebSocket:', websocketUrl);
+
         const websocket = new WebSocket(websocketUrl);
 
         websocket.onopen = () => {

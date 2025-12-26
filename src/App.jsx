@@ -2,11 +2,17 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import JSZip from 'jszip';
 import ChaosGallery from './components/ChaosGallery';
 import LoadingScreen from './components/LoadingScreen';
+import UserLoginDialog from './components/UserLoginDialog';
+import UserSettingsDialog from './components/UserSettingsDialog';
+import { useUser } from './contexts/UserContext';
 import { removeBackground, getSquareCanvas512 } from './utils/imageProcessing';
 // 使用 Vite 的 ?url 查询符引入静态资源，获得正确的 URL
 import loveMusic from '../public/love.mp3?url';
 
 function App() {
+    // ★★★ 用户系统集成 ★★★
+    const { isLoggedIn, currentUser, showLoginDialog, showSettingsDialog, setShowLoginDialog, setShowSettingsDialog, updateUserStats } = useUser();
+
     const [files, setFiles] = useState([]);
     const [defaultTolerance, setDefaultTolerance] = useState(13); // ★★★ 修改：默认去背景强度改为13 ★★★
     const [selectedId, setSelectedId] = useState(null);
@@ -52,6 +58,13 @@ function App() {
     const streamRef = useRef(null);
     const fileInputRef = useRef(null);
     const debounceTimerRef = useRef(null);
+
+    // ★★★ 从用户偏好加载默认设置 ★★★
+    useEffect(() => {
+        if (currentUser?.preferences?.defaultTolerance) {
+            setDefaultTolerance(currentUser.preferences.defaultTolerance);
+        }
+    }, [currentUser]);
     const colorPickerCanvasRef = useRef(null); // 用于颜色提取的隐藏画布 
 
     useEffect(() => {
@@ -202,6 +215,13 @@ function App() {
                 backgroundColor: bgColor || backgroundColor || null // ★★★ 保存背景色信息 ★★★
             };
             setFiles(prev => [...prev, newFile]);
+
+            // ★★★ 更新用户统计信息 ★★★
+            if (isLoggedIn) {
+                updateUserStats({
+                    totalCaptures: (currentUser?.stats?.totalCaptures || 0) + 1
+                });
+            }
         }, 'image/png');
     }, [defaultTolerance, backgroundColor]); // 添加 backgroundColor 依赖
 
@@ -399,6 +419,14 @@ function App() {
         }));
         setFiles(prev => [...prev, ...newProcessedFiles]);
         setIsProcessing(false);
+
+        // ★★★ 更新用户统计信息 ★★★
+        if (isLoggedIn && selectedFiles.length > 0) {
+            updateUserStats({
+                totalImports: (currentUser?.stats?.totalImports || 0) + selectedFiles.length
+            });
+        }
+
         e.target.value = '';
     };
 
@@ -504,6 +532,31 @@ function App() {
 
     return (
         <div className="h-screen flex flex-col md:flex-row bg-slate-900 overflow-hidden font-sans">
+            {/* ★★★ 用户状态栏 ★★★ */}
+            <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
+                {isLoggedIn ? (
+                    <>
+                        <div className="px-3 py-1.5 bg-slate-800/90 backdrop-blur-sm border border-slate-700 rounded-lg flex items-center gap-2">
+                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                            <span className="text-white text-sm font-medium">{currentUser?.username}</span>
+                        </div>
+                        <button
+                            onClick={() => setShowSettingsDialog(true)}
+                            className="px-3 py-1.5 bg-slate-800/90 backdrop-blur-sm hover:bg-slate-700/90 text-white text-sm font-medium rounded-lg border border-slate-600 transition-all"
+                        >
+                            设置
+                        </button>
+                    </>
+                ) : (
+                    <button
+                        onClick={() => setShowLoginDialog(true)}
+                        className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-medium rounded-lg border border-cyan-500 transition-all"
+                    >
+                        登录
+                    </button>
+                )}
+            </div>
+
             <div className="order-2 md:order-1 h-2/5 md:h-full md:w-96 flex flex-col bg-slate-800 border-t md:border-t-0 md:border-r border-slate-700 z-30 shadow-2xl">
                 <div className="hidden md:flex p-6 bg-slate-900 border-b border-slate-700 justify-between items-center">
                     <div>
@@ -1176,6 +1229,12 @@ function App() {
                     </div>
                 </div>
             )}
+
+            {/* ★★★ 用户登录对话框 ★★★ */}
+            {showLoginDialog && <UserLoginDialog onClose={() => setShowLoginDialog(false)} />}
+
+            {/* ★★★ 用户设置对话框 ★★★ */}
+            {showSettingsDialog && <UserSettingsDialog onClose={() => setShowSettingsDialog(false)} />}
         </div>
     );
 }

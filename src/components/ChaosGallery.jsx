@@ -811,23 +811,35 @@ const ChaosGallery = ({ files, onBack, audioUrl }) => {
             // ▶ 模块 C：常规模式环境更新 (墙/地呼吸)
             // =========================================================
             if (wallRef.current) {
-                const targetWallZ = (mode === 'grid') ? -5 : -500;
+                const targetWallZ = (mode === 'grid' || mode === 'free') ? -5 : -500;
                 wallRef.current.position.z = THREE.MathUtils.lerp(wallRef.current.position.z, targetWallZ, 0.1);
-                
+
                 // 墙壁淡入淡出
                 const dist = Math.abs(wallRef.current.position.z);
                 const visibility = 1.0 - THREE.MathUtils.smoothstep(dist, 100, 200);
-                wallRef.current.material.opacity = 0.25 * visibility; 
-                
-                // 阴影柔化
-                if (keyLightRef.current && mode === 'grid') {
+                wallRef.current.material.opacity = 0.25 * visibility;
+
+                // 阴影柔化（网格模式和自由模式保持一致）
+                if (keyLightRef.current && (mode === 'grid' || mode === 'free')) {
                       const blurFactor = THREE.MathUtils.mapLinear(dist, 100, 200, 0, 1);
                       keyLightRef.current.shadow.radius = THREE.MathUtils.lerp(10, 30, Math.max(0, Math.min(1, blurFactor)));
                 }
             }
             if (floorRef.current) {
-                 const targetFloorOpacity = (mode === 'grid') ? 0.0 : 0.15;
+                 const targetFloorOpacity = (mode === 'grid' || mode === 'free') ? 0.0 : 0.15;
                  floorRef.current.material.opacity = THREE.MathUtils.lerp(floorRef.current.material.opacity, targetFloorOpacity, 0.05);
+            }
+
+            // =========================================================
+            // ▶ 模块 C2：光照强度统一调整（所有模式与特写模式保持一致）
+            // =========================================================
+            if (keyLightRef.current) {
+                // 所有模式都使用与特写模式相同的光照强度
+                keyLightRef.current.intensity = THREE.MathUtils.lerp(keyLightRef.current.intensity, 60, 0.1);
+            }
+            if (lightsRef.current.hemiLight) {
+                // 所有模式都使用与特写模式相同的半球光照强度
+                lightsRef.current.hemiLight.intensity = THREE.MathUtils.lerp(lightsRef.current.hemiLight.intensity, 4.0, 0.1);
             }
 
             // =========================================================
@@ -991,6 +1003,11 @@ const ChaosGallery = ({ files, onBack, audioUrl }) => {
                     }
                 }
                 b.leftWing.material.opacity = THREE.MathUtils.lerp(b.leftWing.material.opacity, targetOpacity, 0.1);
+
+                // --- 材质自发光强度控制（所有模式与特写模式保持一致） ---
+                const targetEmissiveIntensity = 0.02; // 所有模式都使用与特写模式相同的自发光强度
+                b.leftWing.material.emissiveIntensity = THREE.MathUtils.lerp(b.leftWing.material.emissiveIntensity, targetEmissiveIntensity, 0.1);
+                b.rightWing.material.emissiveIntensity = THREE.MathUtils.lerp(b.rightWing.material.emissiveIntensity, targetEmissiveIntensity, 0.1);
             });
 
             // 最终渲染

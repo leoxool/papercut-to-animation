@@ -645,16 +645,22 @@ const ChaosGallery = ({ files, onBack, audioUrl }) => {
                 const customDepthMaterial = new THREE.MeshDepthMaterial({
                     depthPacking: THREE.RGBADepthPacking, map: texture, alphaTest: 0.5
                 });
-                const wingGeo = new THREE.PlaneGeometry(5, 10, 2, 2); 
+                const wingGeo = new THREE.PlaneGeometry(5, 10, 2, 2);
                 const uvsL = wingGeo.attributes.uv;
-                for (let i = 0; i < uvsL.count; i++) uvsL.setX(i, uvsL.getX(i) * 0.5);
-                wingGeo.translate(-2.5, 0, 0); 
+                // ★★★ 左翅膀：水平镜像翻转 ★★★
+                for (let i = 0; i < uvsL.count; i++) {
+                    uvsL.setX(i, 1.0 - (uvsL.getX(i) * 0.5));
+                }
+                wingGeo.translate(-2.5, 0, 0);
                 const leftWing = new THREE.Mesh(wingGeo, material);
-                leftWing.castShadow = true; leftWing.receiveShadow = true; 
-                leftWing.customDepthMaterial = customDepthMaterial; 
+                leftWing.castShadow = true; leftWing.receiveShadow = true;
+                leftWing.customDepthMaterial = customDepthMaterial;
                 const wingGeoR = new THREE.PlaneGeometry(5, 10, 2, 2);
                 const uvsR = wingGeoR.attributes.uv;
-                for (let i = 0; i < uvsR.count; i++) uvsR.setX(i, uvsR.getX(i) * 0.5 + 0.5);
+                // ★★★ 右翅膀：水平镜像翻转 ★★★
+                for (let i = 0; i < uvsR.count; i++) {
+                    uvsR.setX(i, 1.0 - (uvsR.getX(i) * 0.5 + 0.5));
+                }
                 wingGeoR.translate(2.5, 0, 0);
                 const rightWing = new THREE.Mesh(wingGeoR, material);
                 rightWing.castShadow = true; rightWing.receiveShadow = true;

@@ -4,7 +4,10 @@ import ChaosGallery from './components/ChaosGallery';
 import LoadingScreen from './components/LoadingScreen';
 import UserLoginDialog from './components/UserLoginDialog';
 import UserSettingsDialog from './components/UserSettingsDialog';
+import CreateProjectDialog from './components/CreateProjectDialog';
+import ProjectManager from './components/ProjectManager';
 import { useUser } from './contexts/UserContext';
+import { useProject } from './contexts/ProjectContext';
 import { removeBackground, getSquareCanvas512 } from './utils/imageProcessing';
 // 使用 Vite 的 ?url 查询符引入静态资源，获得正确的 URL
 import loveMusic from '../public/love.mp3?url';
@@ -12,6 +15,28 @@ import loveMusic from '../public/love.mp3?url';
 function App() {
     // ★★★ 用户系统集成 ★★★
     const { isLoggedIn, currentUser, showLoginDialog, showSettingsDialog, setShowLoginDialog, setShowSettingsDialog, updateUserStats } = useUser();
+
+    // ★★★ 项目系统集成 ★★★
+    const {
+        currentProject,
+        showCreateDialog,
+        showProjectManager,
+        setShowCreateDialog,
+        setShowProjectManager,
+        projects,
+        createProject
+    } = useProject();
+
+    // 包装 createProject 函数以更新用户统计
+    const handleCreateProject = useCallback((name, files) => {
+        const project = createProject(name, files);
+        if (project && isLoggedIn) {
+            updateUserStats({
+                totalProjects: (currentUser?.stats?.totalProjects || 0) + 1
+            });
+        }
+        return project;
+    }, [createProject, isLoggedIn, currentUser, updateUserStats]);
 
     const [files, setFiles] = useState([]);
     const [defaultTolerance, setDefaultTolerance] = useState(13); // ★★★ 修改：默认去背景强度改为13 ★★★
@@ -536,10 +561,21 @@ function App() {
             <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
                 {isLoggedIn ? (
                     <>
+                        {/* 当前项目信息 */}
+                        <div className="px-3 py-1.5 bg-slate-800/90 backdrop-blur-sm border border-slate-700 rounded-lg flex items-center gap-2">
+                            <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                            <span className="text-white text-sm font-medium">
+                                {currentProject?.name || '未选择项目'}
+                            </span>
+                        </div>
+
+                        {/* 用户信息 */}
                         <div className="px-3 py-1.5 bg-slate-800/90 backdrop-blur-sm border border-slate-700 rounded-lg flex items-center gap-2">
                             <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                             <span className="text-white text-sm font-medium">{currentUser?.username}</span>
                         </div>
+
+                        {/* 设置按钮 */}
                         <button
                             onClick={() => setShowSettingsDialog(true)}
                             className="px-3 py-1.5 bg-slate-800/90 backdrop-blur-sm hover:bg-slate-700/90 text-white text-sm font-medium rounded-lg border border-slate-600 transition-all"
@@ -556,6 +592,25 @@ function App() {
                     </button>
                 )}
             </div>
+
+            {/* ★★★ 项目操作栏 ★★★ */}
+            {isLoggedIn && (
+                <div className="absolute top-4 left-4 z-50 flex items-center gap-3">
+                    <button
+                        onClick={() => setShowProjectManager(true)}
+                        className="px-3 py-1.5 bg-slate-800/90 backdrop-blur-sm hover:bg-slate-700/90 text-white text-sm font-medium rounded-lg border border-slate-600 transition-all flex items-center gap-2"
+                    >
+                        📁 项目 ({projects.length})
+                    </button>
+
+                    <button
+                        onClick={() => setShowCreateDialog(true)}
+                        className="px-3 py-1.5 bg-blue-600/90 backdrop-blur-sm hover:bg-blue-500/90 text-white text-sm font-medium rounded-lg border border-blue-500 transition-all"
+                    >
+                        ➕ 新建项目
+                    </button>
+                </div>
+            )}
 
             <div className="order-2 md:order-1 h-2/5 md:h-full md:w-96 flex flex-col bg-slate-800 border-t md:border-t-0 md:border-r border-slate-700 z-30 shadow-2xl">
                 <div className="hidden md:flex p-6 bg-slate-900 border-b border-slate-700 justify-between items-center">
@@ -1235,6 +1290,18 @@ function App() {
 
             {/* ★★★ 用户设置对话框 ★★★ */}
             {showSettingsDialog && <UserSettingsDialog onClose={() => setShowSettingsDialog(false)} />}
+
+            {/* ★★★ 创建项目对话框 ★★★ */}
+            {showCreateDialog && (
+                <CreateProjectDialog
+                    onClose={() => setShowCreateDialog(false)}
+                    files={files}
+                    onCreate={handleCreateProject}
+                />
+            )}
+
+            {/* ★★★ 项目管理对话框 ★★★ */}
+            {showProjectManager && <ProjectManager onClose={() => setShowProjectManager(false)} />}
         </div>
     );
 }

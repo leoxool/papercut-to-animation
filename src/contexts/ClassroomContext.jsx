@@ -24,12 +24,14 @@ export const ClassroomProvider = ({ children, currentUser, currentProject }) => 
 
     // WebSocket 连接
     useEffect(() => {
-        if (!currentUser || !currentProject) return;
+        if (!currentUser) return;
 
         // 动态获取 WebSocket URL
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.hostname;
-        const websocketUrl = `${protocol}//${host}:8080/ws/${currentProject.id}/${currentUser.id}`;
+        // 如果没有项目，使用 'default' 作为项目ID
+        const projectId = currentProject?.id || 'default';
+        const websocketUrl = `${protocol}//${host}:8080/ws/${projectId}/${currentUser.id}`;
         console.log('Connecting to WebSocket:', websocketUrl);
 
         const websocket = new WebSocket(websocketUrl);
@@ -54,21 +56,39 @@ export const ClassroomProvider = ({ children, currentUser, currentProject }) => 
         return () => {
             websocket.close();
         };
-    }, [currentUser, currentProject]);
+    }, [currentUser, currentProject?.id]);
 
     const handleWebSocketMessage = (data) => {
+        console.log('WebSocket message received:', data);
+
         switch (data.type) {
+            case 'connected':
+                console.log('WebSocket connected successfully');
+                break;
             case 'student_joined':
-                setConnectedStudents(prev => [...prev, data.student]);
+                console.log('Student joined:', data.student);
+                setConnectedStudents(prev => {
+                    // 避免重复添加
+                    if (prev.some(s => s.id === data.student.id)) {
+                        return prev;
+                    }
+                    return [...prev, data.student];
+                });
                 break;
             case 'student_left':
+                console.log('Student left:', data.studentId);
                 setConnectedStudents(prev => prev.filter(s => s.id !== data.studentId));
                 break;
             case 'material_submitted':
+                console.log('Material submitted:', data.material);
                 setSubmittedMaterials(prev => [data.material, ...prev]);
                 break;
             case 'material_approved':
+                console.log('Material approved:', data.materialId);
                 // 教师批准素材后的处理
+                break;
+            case 'classroom_created':
+                console.log('Classroom created:', data);
                 break;
             default:
                 break;
@@ -82,49 +102,107 @@ export const ClassroomProvider = ({ children, currentUser, currentProject }) => 
         }
 
         const classroomCode = generateClassroomCode();
+        const projectId = currentProject?.id || 'default';
         const newClassroom = {
             id: Date.now(),
             code: classroomCode,
             teacherId: currentUser.id,
-            projectId: currentProject?.id,
+            projectId: projectId,
             active: true,
             students: [],
             createdAt: new Date().toISOString()
         };
 
         setClassroom(newClassroom);
+
+        // 通知服务器创建教室
+        if (ws && isConnected) {
+            ws.send(JSON.stringify({
+                type: 'create_classroom',
+                code: classroomCode,
+                teacherId: currentUser.id,
+                projectId: projectId
+            }));
+        }
+
         return newClassroom;
-    }, [currentUser, currentProject]);
+    }, [currentUser, currentProject?.id, ws, isConnected]);
 
     // 学生通过口令加入教室
     const joinClassroom = useCallback((code) => {
-        if (currentUser?.role !== 'student') {
-            throw new Error('只有学生可以加入教室');
-        }
+        return new Promise((resolve, reject) => {
+            if (currentUser?.role !== 'student') {
+                reject(new Error('只有学生可以加入教室'));
+                return;
+            }
 
-        // TODO: 调用API验证口令
-        const classroom = {
-            id: Date.now(),
-            code: code,
-            teacherId: 'teacher-id',
-            projectId: currentProject?.id,
-            active: true,
-            students: [currentUser],
-            createdAt: new Date().toISOString()
-        };
+            if (!ws || !isConnected) {
+                reject(new Error('WebSocket未连接，请稍后重试'));
+                return;
+            }
 
-        setClassroom(classroom);
-        return classroom;
-    }, [currentUser, currentProject]);
+            // 等待服务器响应验证结果
+            const timeout = setTimeout(() => {
+                reject(new Error('验证超时，请检查网络连接'));
+            }, 5000);
+
+            const handleMessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                // 监听教室验证结果
+                if (data.type === 'classroom_validated') {
+                    clearTimeout(timeout);
+                    ws.removeEventListener('message', handleMessage);
+
+                    if (data.valid) {
+                        // 验证成功，创建教室对象并加入
+                        const projectId = currentProject?.id || 'default';
+                        const classroom = {
+                            id: data.classroomId,
+                            code: code,
+                            teacherId: data.teacherId,
+                            projectId: projectId,
+                            active: true,
+                            students: [currentUser],
+                            createdAt: new Date().toISOString()
+                        };
+
+                        setClassroom(classroom);
+
+                        // 发送加入教室消息
+                        ws.send(JSON.stringify({
+                            type: 'join_classroom',
+                            classroomId: data.classroomId,
+                            userId: currentUser.id
+                        }));
+
+                        resolve(classroom);
+                    } else {
+                        reject(new Error('教室代码不存在或已失效'));
+                    }
+                }
+            };
+
+            ws.addEventListener('message', handleMessage);
+
+            // 发送验证请求
+            ws.send(JSON.stringify({
+                type: 'validate_classroom',
+                code: code,
+                userId: currentUser.id
+            }));
+        });
+    }, [currentUser, currentProject, ws, isConnected]);
 
     // 提交素材
     const submitMaterial = useCallback((material) => {
         if (!classroom || !currentUser) return;
 
+        const projectId = currentProject?.id || 'default';
         const submittedMaterial = {
             ...material,
             id: Date.now(),
-            projectId: currentProject.id,
+            projectId: projectId,
             studentId: currentUser.id,
             studentName: currentUser.username,
             status: 'submitted',
@@ -141,7 +219,7 @@ export const ClassroomProvider = ({ children, currentUser, currentProject }) => 
 
         setSubmittedMaterials(prev => [submittedMaterial, ...prev]);
         return submittedMaterial;
-    }, [classroom, currentUser, currentProject, ws, isConnected]);
+    }, [classroom, currentUser, currentProject?.id, ws, isConnected]);
 
     // 教师批准素材
     const approveMaterial = useCallback((materialId) => {

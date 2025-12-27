@@ -7,7 +7,7 @@ import UserSettingsDialog from './components/UserSettingsDialog';
 import CreateProjectDialog from './components/CreateProjectDialog';
 import ProjectManager from './components/ProjectManager';
 import TeacherDashboard from './components/Teacher/TeacherDashboard';
-import StudentDashboard from './components/Student/StudentDashboard';
+import AdminDashboard from './components/Admin/AdminDashboard';
 import { useUser } from './contexts/UserContext';
 import { useProject } from './contexts/ProjectContext';
 import { removeBackground, getSquareCanvas512 } from './utils/imageProcessing';
@@ -555,22 +555,26 @@ function App() {
 
     // ★★★ 教室协作模式：根据用户角色显示不同界面 ★★★
     if (isLoggedIn && currentUser?.role) {
-        if (currentUser.role === 'teacher') {
+        if (currentUser.role === 'admin') {
+            return <AdminDashboard />;
+        } else if (currentUser.role === 'teacher') {
             return (
                 <TeacherDashboard
                     files={files}
                     onCapture={captureAndProcess}
                 />
             );
-        } else if (currentUser.role === 'student') {
-            return (
-                <StudentDashboard
-                    files={files}
-                    onCapture={captureAndProcess}
-                    onSubmit={() => {}}
-                />
-            );
         }
+        // 学生端直接显示采集素材界面（与单人模式相同）
+    }
+
+    // ★★★ 强制登录：未认证用户只能看到登录对话框 ★★★
+    if (!isLoggedIn) {
+        return (
+            <div className="h-screen flex items-center justify-center bg-slate-900">
+                <UserLoginDialog />
+            </div>
+        );
     }
 
     if (viewMode === 'gallery') {

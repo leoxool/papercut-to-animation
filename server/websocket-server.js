@@ -6,7 +6,8 @@ const wss = new WebSocket.Server({ server });
 
 // 存储连接的客户端
 const clients = new Map(); // Map<projectId, Map<userId, WebSocket>>
-const classrooms = new Map(); // Map<classroomId, {projectId, teacherId, students: []}>
+const classrooms = new Map(); // Map<classroomId, {projectId, teacherId, students: [], code}>
+const classroomCodes = new Map(); // Map<code, classroomId> - 快速查找教室
 const materials = new Map(); // Map<materialId, materialData>
 
 wss.on('connection', (ws, req) => {
@@ -69,6 +70,12 @@ wss.on('connection', (ws, req) => {
 
 function handleMessage(ws, projectId, userId, data) {
     switch (data.type) {
+        case 'validate_classroom':
+            handleValidateClassroom(ws, projectId, userId, data);
+            break;
+        case 'create_classroom':
+            handleCreateClassroom(projectId, userId, data);
+            break;
         case 'join_classroom':
             handleJoinClassroom(projectId, userId, data);
             break;
@@ -86,18 +93,92 @@ function handleMessage(ws, projectId, userId, data) {
     }
 }
 
+function handleValidateClassroom(ws, projectId, userId, data) {
+    const { code } = data;
+
+    console.log(`Validating classroom code: ${code} for user: ${userId}`);
+
+    // 检查教室代码是否存在
+    const classroomId = classroomCodes.get(code);
+
+    if (!classroomId) {
+        // 教室代码不存在
+        ws.send(JSON.stringify({
+            type: 'classroom_validated',
+            valid: false,
+            message: '教室代码不存在'
+        }));
+        return;
+    }
+
+    // 获取教室信息
+    const classroom = classrooms.get(classroomId);
+
+    if (!classroom || !classroom.active) {
+        ws.send(JSON.stringify({
+            type: 'classroom_validated',
+            valid: false,
+            message: '教室已关闭'
+        }));
+        return;
+    }
+
+    // 验证成功，返回教室信息
+    ws.send(JSON.stringify({
+        type: 'classroom_validated',
+        valid: true,
+        classroomId: classroomId,
+        teacherId: classroom.teacherId,
+        code: classroom.code
+    }));
+
+    console.log(`Classroom ${classroomId} validated successfully for user ${userId}`);
+}
+
+function handleCreateClassroom(projectId, userId, data) {
+    const { code, teacherId } = data;
+
+    console.log(`Creating classroom with code: ${code} for teacher: ${teacherId}`);
+
+    const classroomId = Date.now().toString();
+    const classroom = {
+        id: classroomId,
+        projectId,
+        teacherId,
+        code,
+        students: [],
+        active: true,
+        createdAt: new Date().toISOString()
+    };
+
+    // 存储教室
+    classrooms.set(classroomId, classroom);
+    classroomCodes.set(code, classroomId);
+
+    console.log(`Classroom created: ${classroomId} with code: ${code}`);
+
+    // 通知创建者
+    const client = clients.get(projectId)?.get(userId);
+    if (client) {
+        client.send(JSON.stringify({
+            type: 'classroom_created',
+            classroomId: classroomId,
+            code: code
+        }));
+    }
+}
+
 function handleJoinClassroom(projectId, userId, data) {
     const { classroomId } = data;
 
-    if (!classrooms.has(classroomId)) {
-        classrooms.set(classroomId, {
-            projectId,
-            teacherId: null,
-            students: []
-        });
+    const classroom = classrooms.get(classroomId);
+
+    if (!classroom) {
+        console.error(`Classroom ${classroomId} not found for user ${userId}`);
+        return;
     }
 
-    const classroom = classrooms.get(classroomId);
+    // 将学生添加到教室
     if (!classroom.students.includes(userId)) {
         classroom.students.push(userId);
     }
@@ -109,7 +190,7 @@ function handleJoinClassroom(projectId, userId, data) {
         classroomId
     });
 
-    console.log(`User ${userId} joined classroom ${classroomId}`);
+    console.log(`User ${userId} joined classroom ${classroomId}. Total students: ${classroom.students.length}`);
 }
 
 function handleMaterialSubmitted(projectId, userId, material) {

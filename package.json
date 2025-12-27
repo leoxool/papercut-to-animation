@@ -1,14 +1,15 @@
 {
-  "name": "papercut-art",
+  "name": "artclassroom",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "dev:lan": "vite --host 0.0.0.0",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start:lan": "./start-lan.sh"
   },
   "dependencies": {
     "jszip": "^3.10.1",
@@ -33,7 +34,7 @@
   "overrides": {
     "vite": "npm:rolldown-vite@7.2.5"
   },
-  "description": "This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.",
+  "description": "ArtClassroom - 教室协作创作平台，让教师和学生实时协作创作动画作品",
   "main": "eslint.config.js",
   "keywords": [],
   "author": "",

@@ -10,6 +10,134 @@ export const useUser = () => {
     return context;
 };
 
+// API 配置
+const API_BASE_URL = `http://${window.location.hostname}:3001`;
+const API_HEADERS = {
+    'Content-Type': 'application/json'
+};
+
+// Session configuration
+const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
+const SESSION_CHECK_INTERVAL = 60 * 1000; // Check every minute
+
+// HTTP 客户端类
+class ApiClient {
+    constructor() {
+        this.token = localStorage.getItem('auth_token');
+        this.sessionStartTime = sessionStorage.getItem('session_start_time');
+    }
+
+    setToken(token) {
+        this.token = token;
+        if (token) {
+            localStorage.setItem('auth_token', token);
+            // 使用sessionStorage，这样页面关闭时自动清除，但刷新时保留
+            this.sessionStartTime = Date.now().toString();
+            sessionStorage.setItem('session_start_time', this.sessionStartTime);
+        } else {
+            localStorage.removeItem('auth_token');
+            sessionStorage.removeItem('session_start_time');
+        }
+    }
+
+    // Update session activity timestamp
+    updateActivity() {
+        this.sessionStartTime = Date.now().toString();
+        sessionStorage.setItem('session_start_time', this.sessionStartTime);
+    }
+
+    // Check if session is still valid
+    isSessionValid() {
+        if (!this.sessionStartTime) return false;
+        const now = Date.now();
+        const sessionStart = parseInt(this.sessionStartTime, 10);
+        return (now - sessionStart) < SESSION_TIMEOUT;
+    }
+
+    // Check if session is expired
+    isSessionExpired() {
+        return !this.isSessionValid();
+    }
+
+    // Clear session data
+    clearSession() {
+        localStorage.removeItem('auth_token');
+        sessionStorage.removeItem('session_start_time');
+        this.token = null;
+        this.sessionStartTime = null;
+    }
+
+    async request(endpoint, options = {}) {
+        const url = `${API_BASE_URL}${endpoint}`;
+        console.log('API Request:', url);
+        const headers = {
+            ...API_HEADERS,
+            ...options.headers
+        };
+
+        if (this.token) {
+            headers['Authorization'] = `Bearer ${this.token}`;
+        }
+
+        const response = await fetch(url, {
+            ...options,
+            headers
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || '请求失败');
+        }
+
+        return data;
+    }
+
+    // 注册
+    async register(userData) {
+        return this.request('/api/auth/register', {
+            method: 'POST',
+            body: JSON.stringify(userData)
+        });
+    }
+
+    // 登录
+    async login(username, password) {
+        return this.request('/api/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ username, password })
+        });
+    }
+
+    // 获取当前用户
+    async getCurrentUser() {
+        return this.request('/api/auth/me');
+    }
+
+    // 更新用户
+    async updateUser(userData) {
+        return this.request('/api/auth/me', {
+            method: 'PUT',
+            body: JSON.stringify(userData)
+        });
+    }
+
+    // 登出
+    async logout() {
+        try {
+            await this.request('/api/auth/logout', {
+                method: 'POST'
+            });
+        } catch (error) {
+            console.error('登出API调用失败:', error);
+        } finally {
+            this.setToken(null);
+        }
+    }
+}
+
+const apiClient = new ApiClient();
+
 // 生成随机用户ID
 const generateUserId = () => {
     return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -30,111 +158,187 @@ export const UserProvider = ({ children }) => {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [showLoginDialog, setShowLoginDialog] = useState(false);
     const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const [sessionExpired, setSessionExpired] = useState(false);
 
-    // 从 localStorage 加载用户数据
+    // 从 localStorage 和 API 加载用户数据，并检查session有效性
     useEffect(() => {
-        const savedUser = localStorage.getItem('papercut_user');
-        const savedUsers = localStorage.getItem('papercut_all_users');
-
-        if (savedUser) {
+        const initAuth = async () => {
             try {
-                const userData = JSON.parse(savedUser);
-                setCurrentUser(userData);
-                setIsLoggedIn(true);
+                // 检查是否有token和session
+                const token = localStorage.getItem('auth_token');
+                const sessionStartTime = sessionStorage.getItem('session_start_time');
+
+                // 如果有token但没有session时间，或者session已过期，则需要重新登录
+                if (token) {
+                    if (!sessionStartTime || apiClient.isSessionExpired()) {
+                        console.log('Session已过期或无效，需要重新登录');
+                        apiClient.clearSession();
+                        setIsLoggedIn(false);
+                        setShowLoginDialog(true);
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    apiClient.setToken(token);
+                    const response = await apiClient.getCurrentUser();
+                    setCurrentUser(response.user);
+                    setIsLoggedIn(true);
+
+                    // session_start_time存在且未过期，保持登录状态
+                } else {
+                    // 没有token，强制显示登录对话框
+                    setShowLoginDialog(true);
+                }
             } catch (error) {
-                console.error('Error parsing saved user:', error);
-                localStorage.removeItem('papercut_user');
-            }
-        }
-    }, []);
-
-    // 注册新用户
-    const registerUser = useCallback((username, role = 'student', preferences = {}) => {
-        const allUsers = JSON.parse(localStorage.getItem('papercut_all_users') || '[]');
-        const userId = generateUserId();
-
-        const newUser = {
-            id: userId,
-            username: username || generateRandomUsername(),
-            role: role, // 'teacher' 或 'student'
-            createdAt: new Date().toISOString(),
-            preferences: {
-                defaultTolerance: 13,
-                autoSave: true,
-                ...preferences
-            },
-            stats: {
-                totalCaptures: 0,
-                totalImports: 0,
-                totalProjects: 0,
-                totalExports: 0
+                console.error('自动登录失败:', error);
+                // Token 无效，清除本地存储
+                apiClient.clearSession();
+            } finally {
+                setIsLoading(false);
             }
         };
 
-        // 检查用户名是否已存在
-        const userExists = allUsers.some(u => u.username === newUser.username);
-        if (userExists) {
-            newUser.username = generateRandomUsername();
-        }
-
-        // 保存到所有用户列表
-        allUsers.push(newUser);
-        localStorage.setItem('papercut_all_users', JSON.stringify(allUsers));
-
-        // 设置为当前用户
-        setCurrentUser(newUser);
-        setIsLoggedIn(true);
-        localStorage.setItem('papercut_user', JSON.stringify(newUser));
-
-        return newUser;
+        initAuth();
     }, []);
 
-    // 用户登录
-    const loginUser = useCallback((userId) => {
-        const allUsers = JSON.parse(localStorage.getItem('papercut_all_users') || '[]');
-        const user = allUsers.find(u => u.id === userId);
+    // 监听用户活动，更新session时间
+    useEffect(() => {
+        const updateActivity = () => {
+            if (isLoggedIn) {
+                apiClient.updateActivity();
+            }
+        };
 
-        if (user) {
-            setCurrentUser(user);
+        // 监听鼠标和键盘事件
+        const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+        events.forEach(event => {
+            document.addEventListener(event, updateActivity, true);
+        });
+
+        // 定时检查session是否过期
+        const sessionCheckInterval = setInterval(() => {
+            if (isLoggedIn && apiClient.isSessionExpired()) {
+                console.log('Session已过期，自动登出');
+                setSessionExpired(true);
+                // 直接调用清理函数，避免循环依赖
+                setCurrentUser(null);
+                setIsLoggedIn(false);
+                setShowLoginDialog(true);
+                apiClient.clearSession();
+            }
+        }, SESSION_CHECK_INTERVAL);
+
+        // 页面关闭或刷新时清理session
+        const handleBeforeUnload = () => {
+            apiClient.clearSession();
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+
+        return () => {
+            // 清理事件监听器
+            events.forEach(event => {
+                document.removeEventListener(event, updateActivity, true);
+            });
+            clearInterval(sessionCheckInterval);
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+        };
+    }, [isLoggedIn]);
+
+    // 注册新用户 (API)
+    const registerUser = useCallback(async (username, email, password, role = 'student', fullName = '') => {
+        try {
+            setIsLoading(true);
+            const response = await apiClient.register({
+                username,
+                email,
+                password,
+                role,
+                fullName
+            });
+
+            // 设置 token
+            apiClient.setToken(response.token);
+
+            // 设置当前用户
+            setCurrentUser(response.user);
             setIsLoggedIn(true);
-            localStorage.setItem('papercut_user', JSON.stringify(user));
-            return true;
+
+            // 关闭对话框
+            setShowLoginDialog(false);
+
+            return response.user;
+        } catch (error) {
+            console.error('注册失败:', error);
+            throw error;
+        } finally {
+            setIsLoading(false);
         }
-        return false;
+    }, []);
+
+    // 用户登录 (API)
+    const loginUser = useCallback(async (username, password) => {
+        try {
+            setIsLoading(true);
+            const response = await apiClient.login(username, password);
+
+            // 设置 token 和初始化session时间
+            apiClient.setToken(response.token);
+            apiClient.updateActivity();
+
+            // 设置当前用户
+            setCurrentUser(response.user);
+            setIsLoggedIn(true);
+            setSessionExpired(false);
+
+            // 关闭对话框
+            setShowLoginDialog(false);
+
+            return response.user;
+        } catch (error) {
+            console.error('登录失败:', error);
+            throw error;
+        } finally {
+            setIsLoading(false);
+        }
     }, []);
 
     // 用户登出
-    const logoutUser = useCallback(() => {
-        setCurrentUser(null);
-        setIsLoggedIn(false);
-        localStorage.removeItem('papercut_user');
+    const logoutUser = useCallback(async () => {
+        try {
+            await apiClient.logout();
+        } catch (error) {
+            console.error('登出失败:', error);
+        } finally {
+            setCurrentUser(null);
+            setIsLoggedIn(false);
+            setShowLoginDialog(true);
+            setSessionExpired(false);
+        }
     }, []);
 
     // 更新用户偏好设置
     const updateUserPreferences = useCallback((newPreferences) => {
         if (!currentUser) return;
 
+        // TODO: 未来通过 API 更新用户偏好
         const updatedUser = {
             ...currentUser,
-            preferences: {
-                ...currentUser.preferences,
+            settings: {
+                ...currentUser.settings,
                 ...newPreferences
             }
         };
 
         setCurrentUser(updatedUser);
-        localStorage.setItem('papercut_user', JSON.stringify(updatedUser));
-
-        // 同时更新所有用户列表中的数据
-        const allUsers = JSON.parse(localStorage.getItem('papercut_all_users') || '[]');
-        const updatedUsers = allUsers.map(u => u.id === currentUser.id ? updatedUser : u);
-        localStorage.setItem('papercut_all_users', JSON.stringify(updatedUsers));
     }, [currentUser]);
 
     // 更新用户统计信息
     const updateUserStats = useCallback((newStats) => {
         if (!currentUser) return;
 
+        // TODO: 未来通过 API 更新用户统计
         const updatedUser = {
             ...currentUser,
             stats: {
@@ -144,47 +348,22 @@ export const UserProvider = ({ children }) => {
         };
 
         setCurrentUser(updatedUser);
-        localStorage.setItem('papercut_user', JSON.stringify(updatedUser));
-
-        // 同时更新所有用户列表中的数据
-        const allUsers = JSON.parse(localStorage.getItem('papercut_all_users') || '[]');
-        const updatedUsers = allUsers.map(u => u.id === currentUser.id ? updatedUser : u);
-        localStorage.setItem('papercut_all_users', JSON.stringify(updatedUsers));
     }, [currentUser]);
-
-    // 获取所有用户列表（用于登录选择）
-    const getAllUsers = useCallback(() => {
-        return JSON.parse(localStorage.getItem('papercut_all_users') || '[]');
-    }, []);
-
-    // 删除用户
-    const deleteUser = useCallback((userId) => {
-        const allUsers = JSON.parse(localStorage.getItem('papercut_all_users') || '[]');
-        const updatedUsers = allUsers.filter(u => u.id !== userId);
-        localStorage.setItem('papercut_all_users', JSON.stringify(updatedUsers));
-
-        // 如果删除的是当前用户，则登出
-        if (currentUser && currentUser.id === userId) {
-            logoutUser();
-        }
-
-        return true;
-    }, [currentUser, logoutUser]);
 
     const value = {
         currentUser,
         isLoggedIn,
+        isLoading,
         showLoginDialog,
         showSettingsDialog,
+        sessionExpired,
         setShowLoginDialog,
         setShowSettingsDialog,
         registerUser,
         loginUser,
         logoutUser,
         updateUserPreferences,
-        updateUserStats,
-        getAllUsers,
-        deleteUser
+        updateUserStats
     };
 
     return (

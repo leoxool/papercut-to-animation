@@ -17,8 +17,8 @@ const API_HEADERS = {
 };
 
 // Session configuration
-const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
-const SESSION_CHECK_INTERVAL = 60 * 1000; // Check every minute
+// const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds (已禁用)
+const SESSION_CHECK_INTERVAL = 60 * 1000; // Check every minute (仅保留间隔，不触发登出)
 
 // HTTP 客户端类
 class ApiClient {
@@ -48,10 +48,8 @@ class ApiClient {
 
     // Check if session is still valid
     isSessionValid() {
-        if (!this.sessionStartTime) return false;
-        const now = Date.now();
-        const sessionStart = parseInt(this.sessionStartTime, 10);
-        return (now - sessionStart) < SESSION_TIMEOUT;
+        // 永久会话，不检查过期时间
+        return true;
     }
 
     // Check if session is expired
@@ -218,15 +216,7 @@ export const UserProvider = ({ children }) => {
 
         // 定时检查session是否过期
         const sessionCheckInterval = setInterval(() => {
-            if (isLoggedIn && apiClient.isSessionExpired()) {
-                console.log('Session已过期，自动登出');
-                setSessionExpired(true);
-                // 直接调用清理函数，避免循环依赖
-                setCurrentUser(null);
-                setIsLoggedIn(false);
-                setShowLoginDialog(true);
-                apiClient.clearSession();
-            }
+            // 不再自动登出，仅保留定期检查机制（可用于未来扩展）
         }, SESSION_CHECK_INTERVAL);
 
         // 页面关闭或刷新时清理session

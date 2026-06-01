@@ -4,12 +4,9 @@ import ChaosGallery from './components/ChaosGallery';
 import LoadingScreen from './components/LoadingScreen';
 import UserLoginDialog from './components/UserLoginDialog';
 import UserSettingsDialog from './components/UserSettingsDialog';
-import CreateProjectDialog from './components/CreateProjectDialog';
-import ProjectManager from './components/ProjectManager';
-import TeacherDashboard from './components/Teacher/TeacherDashboard';
 import AdminDashboard from './components/Admin/AdminDashboard';
 import { useUser } from './contexts/UserContext';
-import { useProject } from './contexts/ProjectContext';
+import { useClassroom } from './contexts/ClassroomContext';
 import { removeBackground, getSquareCanvas512 } from './utils/imageProcessing';
 // 使用 Vite 的 ?url 查询符引入静态资源，获得正确的 URL
 import loveMusic from '../public/love.mp3?url';
@@ -18,27 +15,8 @@ function App() {
     // ★★★ 用户系统集成 ★★★
     const { isLoggedIn, currentUser, showLoginDialog, showSettingsDialog, setShowLoginDialog, setShowSettingsDialog, updateUserStats } = useUser();
 
-    // ★★★ 项目系统集成 ★★★
-    const {
-        currentProject,
-        showCreateDialog,
-        showProjectManager,
-        setShowCreateDialog,
-        setShowProjectManager,
-        projects,
-        createProject
-    } = useProject();
-
-    // 包装 createProject 函数以更新用户统计
-    const handleCreateProject = useCallback((name, files) => {
-        const project = createProject(name, files);
-        if (project && isLoggedIn) {
-            updateUserStats({
-                totalProjects: (currentUser?.stats?.totalProjects || 0) + 1
-            });
-        }
-        return project;
-    }, [createProject, isLoggedIn, currentUser, updateUserStats]);
+    // ★★★ 教室协作功能 ★★★
+    const { classroom, createClassroom, joinClassroom, connectedStudents, submittedMaterials } = useClassroom();
 
     const [files, setFiles] = useState([]);
     const [defaultTolerance, setDefaultTolerance] = useState(13); // ★★★ 修改：默认去背景强度改为13 ★★★
@@ -63,6 +41,8 @@ function App() {
 
     // ★★★ 新增：下载命名面板状态 ★★★
     const [showDownloadDialog, setShowDownloadDialog] = useState(false);
+    const [showJoinClassroomDialog, setShowJoinClassroomDialog] = useState(false);
+    const [joinCode, setJoinCode] = useState('');
     const [zipFileName, setZipFileName] = useState('');
     const [zipNameError, setZipNameError] = useState('');
 
@@ -110,13 +90,24 @@ function App() {
     }, []);
 
     const startCamera = async () => {
+        console.log('[App] startCamera called, videoRef.current:', videoRef.current);
         try {
             const constraints = { video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } };
+            console.log('[App] Requesting camera with constraints:', constraints);
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            if(videoRef.current) videoRef.current.srcObject = stream;
+            console.log('[App] stream obtained:', stream);
+            if(videoRef.current) {
+                videoRef.current.srcObject = stream;
+                console.log('[App] srcObject set, videoRef.current:', videoRef.current);
+            } else {
+                console.log('[App] WARNING: videoRef.current is null!');
+            }
             streamRef.current = stream;
             setCameraActive(true);
-        } catch (err) { console.error("相机启动失败:", err); }
+            console.log('[App] Camera started successfully');
+        } catch (err) {
+            console.error('[App] 相机启动失败:', err);
+        }
     };
     const stopCamera = () => {
         if (streamRef.current) {
@@ -126,8 +117,25 @@ function App() {
         }
     };
     useEffect(() => {
-        if (viewMode === 'capture' && !loading) {
-            startCamera();
+        console.log('[App] useEffect camera trigger, viewMode:', viewMode, 'videoRef.current:', videoRef.current);
+        // 立即启动摄像头，不要等待 loading 完成
+        if (viewMode === 'capture') {
+            console.log('[App] calling startCamera');
+            // 使用 requestAnimationFrame 等待 video 元素渲染到 DOM
+            let attempts = 0;
+            const tryStart = () => {
+                attempts++;
+                if (videoRef.current) {
+                    console.log('[App] video element found after', attempts, 'attempts');
+                    startCamera();
+                } else if (attempts < 20) {
+                    console.log('[App] video element not ready, retry...');
+                    requestAnimationFrame(tryStart);
+                } else {
+                    console.log('[App] giving up, video element never found');
+                }
+            };
+            tryStart();
             // 切换到拍摄模式时清除缓存
             if (colorPickerCanvasRef.current) {
                 colorPickerCanvasRef.current = null;
@@ -140,16 +148,16 @@ function App() {
             stopCamera();
         }
         return () => stopCamera();
-    }, [viewMode, loading]);
+    }, [viewMode]);
     
     useEffect(() => {
-        if (viewMode === 'capture' && !selectedId && !loading && streamRef.current && videoRef.current) {
+        if (viewMode === 'capture' && !selectedId && streamRef.current && videoRef.current) {
             if (videoRef.current.srcObject !== streamRef.current) {
                 videoRef.current.srcObject = streamRef.current;
                 videoRef.current.play().catch(e => console.log("自动恢复播放失败:", e));
             }
         }
-    }, [selectedId, viewMode, loading]); 
+    }, [selectedId, viewMode]); 
 
     const handleVideoMetadata = (e) => {
         const v = e.target;
@@ -216,6 +224,13 @@ function App() {
 
     const captureAndProcess = useCallback(async (bgColor) => {
         if (!videoRef.current || !streamRef.current) return;
+
+        // ★★★ 学生最多10个素材 ★★★
+        if (currentUser?.role === 'student' && files.length >= 10) {
+            alert('素材数量已达上限（10个），请先提交给教师');
+            return;
+        }
+
         setFlashEffect(true);
         setTimeout(() => setFlashEffect(false), 100);
 
@@ -554,25 +569,94 @@ function App() {
     }
 
     // ★★★ 教室协作模式：根据用户角色显示不同界面 ★★★
-    if (isLoggedIn && currentUser?.role) {
-        if (currentUser.role === 'admin') {
-            return <AdminDashboard />;
-        } else if (currentUser.role === 'teacher') {
-            return (
-                <TeacherDashboard
-                    files={files}
-                    onCapture={captureAndProcess}
-                />
-            );
-        }
-        // 学生端直接显示采集素材界面（与单人模式相同）
+    if (isLoggedIn && currentUser?.role === 'admin') {
+        return <AdminDashboard />;
     }
+    // 教师和学生都使用主页面，协作功能通过按钮触发
 
     // ★★★ 强制登录：未认证用户只能看到登录对话框 ★★★
     if (!isLoggedIn) {
         return (
             <div className="h-screen flex items-center justify-center bg-slate-900">
                 <UserLoginDialog />
+            </div>
+        );
+    }
+
+    // ★★★ 教师必须先创建教室才能使用采集功能 ★★★
+    if (currentUser?.role === 'teacher' && !classroom) {
+        return (
+            <div className="h-screen flex items-center justify-center bg-slate-900">
+                <div className="text-center">
+                    <div className="text-6xl mb-6">🏫</div>
+                    <h2 className="text-white text-2xl font-medium mb-2">欢迎，教师 {currentUser?.username}</h2>
+                    <p className="text-slate-400 mb-8">请先创建一个教室，学生才能加入并提交素材</p>
+                    <button
+                        onClick={createClassroom}
+                        className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-lg font-medium rounded-xl border border-emerald-500 transition-all"
+                    >
+                        创建教室
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // ★★★ 学生必须先加入教室才能使用采集功能 ★★★
+    if (currentUser?.role === 'student' && !classroom) {
+        return (
+            <div className="h-screen flex items-center justify-center bg-slate-900">
+                <div className="text-center">
+                    <div className="text-6xl mb-6">🎓</div>
+                    <h2 className="text-white text-2xl font-medium mb-2">欢迎，学生 {currentUser?.username}</h2>
+                    <p className="text-slate-400 mb-8">请先加入一个教室才能提交素材</p>
+                    <button
+                        onClick={() => setShowJoinClassroomDialog(true)}
+                        className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-white text-lg font-medium rounded-xl border border-amber-500 transition-all"
+                    >
+                        加入教室
+                    </button>
+                </div>
+
+                {/* ★★★ 加入教室对话框（内嵌在欢迎页） ★★★ */}
+                {showJoinClassroomDialog && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowJoinClassroomDialog(false)}>
+                        <div className="bg-slate-800 rounded-2xl p-6 w-80 border border-slate-700 shadow-2xl" onClick={e => e.stopPropagation()}>
+                            <h3 className="text-white text-lg font-medium mb-4">加入教室</h3>
+                            <input
+                                type="text"
+                                value={joinCode}
+                                onChange={e => setJoinCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                placeholder="输入4位教室码"
+                                className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-xl text-white text-center text-2xl font-mono tracking-widest placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                                maxLength={4}
+                            />
+                            <div className="flex gap-3 mt-4">
+                                <button
+                                    onClick={() => { setShowJoinClassroomDialog(false); setJoinCode(''); }}
+                                    className="flex-1 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-xl transition"
+                                >
+                                    取消
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        if (joinCode.length !== 4) return;
+                                        try {
+                                            await joinClassroom(joinCode);
+                                            setShowJoinClassroomDialog(false);
+                                            setJoinCode('');
+                                        } catch (err) {
+                                            alert(err.message);
+                                        }
+                                    }}
+                                    className="flex-1 px-4 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl transition font-medium"
+                                >
+                                    加入
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
@@ -587,14 +671,6 @@ function App() {
             <div className="absolute top-4 right-4 z-50 flex items-center gap-3">
                 {isLoggedIn ? (
                     <>
-                        {/* 当前项目信息 */}
-                        <div className="px-3 py-1.5 bg-slate-800/90 backdrop-blur-sm border border-slate-700 rounded-lg flex items-center gap-2">
-                            <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                            <span className="text-white text-sm font-medium">
-                                {currentProject?.name || '未选择项目'}
-                            </span>
-                        </div>
-
                         {/* 用户信息 */}
                         <div className="px-3 py-1.5 bg-slate-800/90 backdrop-blur-sm border border-slate-700 rounded-lg flex items-center gap-2">
                             <div className="w-2 h-2 bg-green-500 rounded-full"></div>
@@ -608,6 +684,33 @@ function App() {
                         >
                             设置
                         </button>
+
+                        {/* ★★★ 教室协作功能 ★★★ */}
+                        {currentUser?.role === 'teacher' && !classroom && (
+                            <button
+                                onClick={createClassroom}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium rounded-lg border border-emerald-500 transition-all"
+                            >
+                                创建教室
+                            </button>
+                        )}
+
+                        {currentUser?.role === 'student' && !classroom && (
+                            <button
+                                onClick={() => setShowJoinClassroomDialog(true)}
+                                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-sm font-medium rounded-lg border border-amber-500 transition-all"
+                            >
+                                加入教室
+                            </button>
+                        )}
+
+                        {/* 已创建/加入教室状态 */}
+                        {classroom && (
+                            <div className="px-3 py-1.5 bg-emerald-900/50 border border-emerald-700 rounded-lg flex items-center gap-2">
+                                <span className="text-emerald-300 text-sm font-mono">教室: {classroom.code}</span>
+                                <span className="text-white text-xs">{connectedStudents.length}名学生</span>
+                            </div>
+                        )}
                     </>
                 ) : (
                     <button
@@ -618,25 +721,6 @@ function App() {
                     </button>
                 )}
             </div>
-
-            {/* ★★★ 项目操作栏 ★★★ */}
-            {isLoggedIn && (
-                <div className="absolute top-4 left-4 z-50 flex items-center gap-3">
-                    <button
-                        onClick={() => setShowProjectManager(true)}
-                        className="px-3 py-1.5 bg-slate-800/90 backdrop-blur-sm hover:bg-slate-700/90 text-white text-sm font-medium rounded-lg border border-slate-600 transition-all flex items-center gap-2"
-                    >
-                        📁 项目 ({projects.length})
-                    </button>
-
-                    <button
-                        onClick={() => setShowCreateDialog(true)}
-                        className="px-3 py-1.5 bg-blue-600/90 backdrop-blur-sm hover:bg-blue-500/90 text-white text-sm font-medium rounded-lg border border-blue-500 transition-all"
-                    >
-                        ➕ 新建项目
-                    </button>
-                </div>
-            )}
 
             <div className="order-2 md:order-1 h-2/5 md:h-full md:w-96 flex flex-col bg-slate-800 border-t md:border-t-0 md:border-r border-slate-700 z-30 shadow-2xl">
                 <div className="hidden md:flex p-6 bg-slate-900 border-b border-slate-700 justify-between items-center">
@@ -711,13 +795,37 @@ function App() {
 
                 <div className="p-4 bg-slate-900 border-t border-slate-800">
                     <div className="flex gap-3">
-                         <button
-                            onClick={() => setViewMode('gallery')}
-                            disabled={files.length === 0}
-                            className="flex-1 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl flex items-center justify-center font-bold shadow-lg disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95"
-                        >
-                            开始预览素材
-                        </button>
+                         {currentUser?.role === 'student' ? (
+                            <button
+                                onClick={() => {
+                                    if (files.length === 0) return;
+                                    files.forEach(file => {
+                                        submitMaterial({
+                                            id: file.id,
+                                            name: file.name,
+                                            originalUrl: file.originalUrl,
+                                            processedUrl: file.processedUrl,
+                                            materialType: file.materialType,
+                                            backgroundColor: file.backgroundColor
+                                        });
+                                    });
+                                    alert(`已提交 ${files.length} 个素材给教师`);
+                                    setFiles([]);
+                                }}
+                                disabled={files.length === 0}
+                                className="flex-1 py-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl flex items-center justify-center font-bold shadow-lg disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95"
+                            >
+                                提交给教师（{files.length}）
+                            </button>
+                         ) : (
+                            <button
+                                onClick={() => setViewMode('gallery')}
+                                disabled={files.length === 0}
+                                className="flex-1 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl flex items-center justify-center font-bold shadow-lg disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95"
+                            >
+                                开始预览素材
+                            </button>
+                         )}
                     </div>
                     <div className="flex md:hidden gap-2 mt-3 pt-3 border-t border-slate-800">
                         <button onClick={() => fileInputRef.current.click()} className="flex-1 py-2 bg-slate-800 rounded-lg text-xs text-blue-200 border border-slate-700">导入图片</button>
@@ -1316,18 +1424,6 @@ function App() {
 
             {/* ★★★ 用户设置对话框 ★★★ */}
             {showSettingsDialog && <UserSettingsDialog onClose={() => setShowSettingsDialog(false)} />}
-
-            {/* ★★★ 创建项目对话框 ★★★ */}
-            {showCreateDialog && (
-                <CreateProjectDialog
-                    onClose={() => setShowCreateDialog(false)}
-                    files={files}
-                    onCreate={handleCreateProject}
-                />
-            )}
-
-            {/* ★★★ 项目管理对话框 ★★★ */}
-            {showProjectManager && <ProjectManager onClose={() => setShowProjectManager(false)} />}
         </div>
     );
 }

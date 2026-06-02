@@ -1,8 +1,4 @@
-# ArtClassroom Docker Compose
-# 使用: docker-compose -f docker-compose.artclassroom.yml up -d
-
 services:
-  # 前端 (Nginx + SPA)
   frontend:
     build:
       context: .
@@ -10,9 +6,8 @@ services:
     ports:
       - "80:80"
     networks:
-      - artclassroom
+      - supabase_supabase_network
 
-  # API 服务器 (Express)
   api-server:
     build:
       context: ./server
@@ -25,9 +20,8 @@ services:
     ports:
       - "3002:3002"
     networks:
-      - artclassroom
+      - supabase_supabase_network
 
 networks:
-  artclassroom:
-    name: supabase_network
+  supabase_supabase_network:
     external: true

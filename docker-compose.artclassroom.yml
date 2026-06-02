@@ -1,8 +1,6 @@
 # ArtClassroom Docker Compose
 # 使用: docker-compose -f docker-compose.artclassroom.yml up -d
 
-version: '3.8'
-
 services:
   # 前端 (Nginx + SPA)
   frontend:
@@ -11,8 +9,6 @@ services:
       dockerfile: Dockerfile.frontend
     ports:
       - "80:80"
-    depends_on:
-      - api-server
     networks:
       - artclassroom
 
@@ -23,27 +19,15 @@ services:
       dockerfile: Dockerfile
     environment:
       - PORT=3002
-      - SUPABASE_URL=http://kong:8001
-      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
+      - SUPABASE_URL=http://teacherliliang.xyz:8001
+      - SUPABASE_ANON_KEY=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYXV0aGVudGljYXRlZCIsImlhdCI6MTc3ODA3MjE5OCwiZXhwIjoxODA5NjA4MTk4fQ.kiUbjnrhHHvR7RlngL96djqVLZpUAJKuiZEFPjiwxeE
+      - JWT_SECRET=your-secret-key-change-in-production
     ports:
       - "3002:3002"
-    depends_on:
-      - supabase-kong
-    networks:
-      - artclassroom
-
-  # WebSocket 服务器
-  websocket-server:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
-    command: node websocket-server.js
-    ports:
-      - "8080:8080"
     networks:
       - artclassroom
 
 networks:
   artclassroom:
+    name: supabase_network
     external: true

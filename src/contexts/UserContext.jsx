@@ -11,7 +11,7 @@ export const useUser = () => {
 };
 
 // API 配置
-const API_BASE_URL = `http://${window.location.hostname}:3001`;
+const API_BASE_URL = `http://${window.location.hostname}:3002`;
 const API_HEADERS = {
     'Content-Type': 'application/json'
 };

@@ -6,7 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const { db } = require('./db');
 
 // 配置
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const JWT_EXPIRES_IN = '24h';
 

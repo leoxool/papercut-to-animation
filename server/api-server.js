@@ -3,6 +3,7 @@ const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
+const { db } = require('./db');
 
 // 配置
 const PORT = process.env.PORT || 3001;
@@ -72,18 +73,23 @@ class Class {
     }
 }
 
-// 预设管理员账户
-function createDefaultAdmin() {
-    const adminUsername = 'LEO';
-    const adminPassword = 'Xmmsggbbhahaha';
-    const admin = new User({
-        username: adminUsername,
-        password: adminPassword,
-        role: 'admin',
-        fullName: '系统管理员'
-    });
-    users.set(adminUsername, admin);
-    console.log(`✅ 默认管理员账户已创建: ${adminUsername}`);
+// 预设管理员账户（从 Supabase 迁移后暂时保留，用于初始化）
+async function ensureDefaultAdmin() {
+    try {
+        const existingAdmin = await db.getUserByUsername('LEO');
+        if (!existingAdmin) {
+            const passwordHash = bcrypt.hashSync('Xmmsggbbhahaha', 12);
+            await db.createUser({
+                username: 'LEO',
+                password_hash: passwordHash,
+                role: 'admin',
+                full_name: '系统管理员'
+            });
+            console.log(`✅ 默认管理员账户已创建: LEO`);
+        }
+    } catch (error) {
+        console.error('创建默认管理员失败:', error.message);
+    }
 }
 
 // 用户模型
@@ -178,25 +184,24 @@ app.post('/api/users', async (req, res) => {
         }
 
         // 检查用户名是否已存在
-        if (users.has(username)) {
+        const existingUser = await db.getUserByUsername(username);
+        if (existingUser) {
             return res.status(409).json({ error: '用户名已存在' });
         }
 
         // 创建用户
-        const user = new User({
+        const passwordHash = bcrypt.hashSync(password, 12);
+        const user = await db.createUser({
             username,
-            password,
+            password_hash: passwordHash,
             role,
-            fullName,
-            className: role === 'student' ? className : null
+            full_name: fullName || username,
+            class_name: role === 'student' ? className : null
         });
-
-        // 保存用户
-        users.set(username, user);
 
         res.status(201).json({
             message: '用户创建成功',
-            user: user.toJSON()
+            user: user[0]
         });
 
     } catch (error) {
@@ -216,32 +221,46 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         // 查找用户
-        const user = users.get(username);
+        const user = await db.getUserByUsername(username);
         if (!user) {
             return res.status(401).json({ error: '用户名或密码错误' });
         }
 
         // 检查用户状态
-        if (!user.isActive) {
+        if (!user.is_active) {
             return res.status(403).json({ error: '账号已被禁用' });
         }
 
         // 验证密码
-        const isPasswordValid = await user.comparePassword(password);
+        const isPasswordValid = bcrypt.compareSync(password, user.password_hash);
         if (!isPasswordValid) {
             return res.status(401).json({ error: '用户名或密码错误' });
         }
 
         // 更新最后登录时间
-        user.lastLoginAt = new Date().toISOString();
-        user.updatedAt = new Date().toISOString();
+        await db.updateUser(user.id, { last_login_at: new Date().toISOString() });
 
         // 生成Token
-        const token = generateToken(user);
+        const token = jwt.sign(
+            { sub: user.id, username: user.username, role: user.role },
+            JWT_SECRET,
+            { expiresIn: JWT_EXPIRES_IN }
+        );
 
         res.json({
             message: '登录成功',
-            user: user.toJSON(),
+            user: {
+                id: user.id,
+                username: user.username,
+                role: user.role,
+                fullName: user.full_name,
+                className: user.class_name,
+                avatarUrl: user.avatar_url,
+                settings: user.settings,
+                isActive: user.is_active,
+                createdAt: user.created_at,
+                lastLoginAt: user.last_login_at
+            },
             token
         });
 
@@ -252,23 +271,26 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // 获取当前用户信息
-app.get('/api/auth/me', authenticateToken, (req, res) => {
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
     try {
-        // 从内存中查找用户
-        let currentUser = null;
-        for (const [username, user] of users.entries()) {
-            if (user.id === req.user.sub) {
-                currentUser = user;
-                break;
-            }
-        }
-
-        if (!currentUser) {
+        const user = await db.getUserById(req.user.sub);
+        if (!user) {
             return res.status(404).json({ error: '用户不存在' });
         }
 
         res.json({
-            user: currentUser.toJSON()
+            user: {
+                id: user.id,
+                username: user.username,
+                role: user.role,
+                fullName: user.full_name,
+                className: user.class_name,
+                avatarUrl: user.avatar_url,
+                settings: user.settings,
+                isActive: user.is_active,
+                createdAt: user.created_at,
+                lastLoginAt: user.last_login_at
+            }
         });
 
     } catch (error) {
@@ -278,34 +300,25 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
 });
 
 // 更新用户信息
-app.put('/api/auth/me', authenticateToken, (req, res) => {
+app.put('/api/auth/me', authenticateToken, async (req, res) => {
     try {
         const { fullName, settings, className } = req.body;
-        let currentUser = null;
-        let currentUsername = null;
+        const user = await db.getUserById(req.user.sub);
 
-        // 查找用户
-        for (const [username, user] of users.entries()) {
-            if (user.id === req.user.sub) {
-                currentUser = user;
-                currentUsername = username;
-                break;
-            }
-        }
-
-        if (!currentUser) {
+        if (!user) {
             return res.status(404).json({ error: '用户不存在' });
         }
 
-        // 更新字段
-        if (fullName) currentUser.fullName = fullName;
-        if (settings) currentUser.settings = { ...currentUser.settings, ...settings };
-        if (className && currentUser.role === 'student') currentUser.className = className;
-        currentUser.updatedAt = new Date().toISOString();
+        const updates = { updated_at: new Date().toISOString() };
+        if (fullName) updates.full_name = fullName;
+        if (settings) updates.settings = { ...user.settings, ...settings };
+        if (className && user.role === 'student') updates.class_name = className;
+
+        const updated = await db.updateUser(user.id, updates);
 
         res.json({
             message: '更新成功',
-            user: currentUser.toJSON()
+            user: updated[0]
         });
 
     } catch (error) {
@@ -322,10 +335,10 @@ app.post('/api/auth/logout', authenticateToken, (req, res) => {
 // ============ 用户管理路由（管理员） ============
 
 // 获取所有用户列表（需要管理员权限）
-app.get('/api/users', authenticateToken, checkRole('admin'), (req, res) => {
+app.get('/api/users', authenticateToken, checkRole('admin'), async (req, res) => {
     try {
-        const userList = Array.from(users.values()).map(user => user.toJSON());
-        res.json({ users: userList });
+        const users = await db.getAllUsers();
+        res.json({ users });
     } catch (error) {
         console.error('获取用户列表错误:', error);
         res.status(500).json({ error: '服务器内部错误' });
@@ -333,15 +346,16 @@ app.get('/api/users', authenticateToken, checkRole('admin'), (req, res) => {
 });
 
 // 删除用户（需要管理员权限）
-app.delete('/api/users/:username', authenticateToken, checkRole('admin'), (req, res) => {
+app.delete('/api/users/:username', authenticateToken, checkRole('admin'), async (req, res) => {
     try {
         const { username } = req.params;
+        const user = await db.getUserByUsername(username);
 
-        if (!users.has(username)) {
+        if (!user) {
             return res.status(404).json({ error: '用户不存在' });
         }
 
-        users.delete(username);
+        await db.deleteUser(user.id);
         res.json({ message: '用户已删除' });
 
     } catch (error) {
@@ -351,27 +365,28 @@ app.delete('/api/users/:username', authenticateToken, checkRole('admin'), (req, 
 });
 
 // 更新用户信息（需要管理员权限）
-app.put('/api/users/:username', authenticateToken, checkRole('admin'), (req, res) => {
+app.put('/api/users/:username', authenticateToken, checkRole('admin'), async (req, res) => {
     try {
         const { username } = req.params;
         const { password, fullName, className, role, isActive } = req.body;
 
-        const user = users.get(username);
+        const user = await db.getUserByUsername(username);
         if (!user) {
             return res.status(404).json({ error: '用户不存在' });
         }
 
-        // 更新字段
-        if (password) user.passwordHash = bcrypt.hashSync(password, 12);
-        if (fullName) user.fullName = fullName;
-        if (className && user.role === 'student') user.className = className;
-        if (role && ['admin', 'teacher', 'student'].includes(role)) user.role = role;
-        if (typeof isActive === 'boolean') user.isActive = isActive;
-        user.updatedAt = new Date().toISOString();
+        const updates = { updated_at: new Date().toISOString() };
+        if (password) updates.password_hash = bcrypt.hashSync(password, 12);
+        if (fullName) updates.full_name = fullName;
+        if (className && user.role === 'student') updates.class_name = className;
+        if (role && ['admin', 'teacher', 'student'].includes(role)) updates.role = role;
+        if (typeof isActive === 'boolean') updates.is_active = isActive;
+
+        const updated = await db.updateUser(user.id, updates);
 
         res.json({
             message: '用户信息已更新',
-            user: user.toJSON()
+            user: updated[0]
         });
 
     } catch (error) {
@@ -567,9 +582,9 @@ app.use((err, req, res, next) => {
 
 // ============ 启动服务器 ============
 
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', async () => {
     // 创建默认管理员账户
-    createDefaultAdmin();
+    await ensureDefaultAdmin();
 
     console.log(`================================================`);
     console.log(`   ArtClassroom API 服务器`);
@@ -577,7 +592,7 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`📡 本地访问: http://localhost:${PORT}`);
     console.log(`🌐 局域网访问: http://[你的IP]:${PORT}`);
     console.log(`🔗 CORS 允许: http://localhost:5173`);
-    console.log(`🗄️  存储方式: 内存 (开发阶段)`);
+    console.log(`🗄️  存储方式: Supabase REST API`);
     console.log(`🔐 JWT 过期时间: ${JWT_EXPIRES_IN}`);
     console.log(`================================================`);
     console.log(`✅ 服务器启动成功！`);

@@ -266,7 +266,7 @@ function broadcastToProject(projectId, message, excludeUserId = null) {
     });
 }
 
-const PORT = process.env.PORT || 8080;
+const PORT =8080;
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`WebSocket server is running on port ${PORT}`);
     console.log(`Accessible from all network interfaces`);

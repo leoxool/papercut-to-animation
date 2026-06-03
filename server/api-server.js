@@ -23,7 +23,9 @@ app.use(cors({
             'http://localhost:5173',
             'http://127.0.0.1:5173',
             `http://localhost:${PORT}`,
-            `http://127.0.0.1:${PORT}`
+            `http://127.0.0.1:${PORT}`,
+            'https://teacherliliang.xyz',
+            'https://www.teacherliliang.xyz'
         ];
 
         // 允许所有局域网地址访问（开发环境）

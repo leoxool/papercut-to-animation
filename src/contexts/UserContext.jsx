@@ -10,8 +10,8 @@ export const useUser = () => {
     return context;
 };
 
-// API 配置
-const API_BASE_URL = `http://${window.location.hostname}:3002`;
+// API 配置 - 使用相对路径，通过 nginx 代理访问 API 服务器
+const API_BASE_URL = '';
 const API_HEADERS = {
     'Content-Type': 'application/json'
 };

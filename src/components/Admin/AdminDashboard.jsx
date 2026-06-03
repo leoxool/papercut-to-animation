@@ -17,7 +17,7 @@ const AdminDashboard = () => {
     const [loading, setLoading] = useState(true);
 
     // API配置
-    const API_BASE_URL = `http://${window.location.hostname}:3002`;
+    const API_BASE_URL = '';
 
     // 加载数据
     useEffect(() => {

@@ -227,7 +227,7 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         // 检查用户状态
-        if (!user.is_active) {
+        if (!user.isActive) {
             return res.status(403).json({ error: '账号已被禁用' });
         }
 

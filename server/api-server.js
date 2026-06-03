@@ -232,7 +232,7 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         // 验证密码
-        const isPasswordValid = bcrypt.compareSync(password, user.password_hash);
+        const isPasswordValid = bcrypt.compareSync(password, user.passwordHash);
         if (!isPasswordValid) {
             return res.status(401).json({ error: '用户名或密码错误' });
         }
